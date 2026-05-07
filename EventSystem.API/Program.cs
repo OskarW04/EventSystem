@@ -6,48 +6,56 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// 1. Rejestracja usług
 builder.Services.AddOpenApi();
-
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-
 builder.Services.AddControllers();
 
+// Pobranie Connection String z zabezpieczeniem przed nullem
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+if (string.IsNullOrEmpty(connectionString))
+{
+    // Logika pomocnicza: jeśli nie znajdzie w Secrets/Environment, rzuci czytelnym błędem przy starcie
+    throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+}
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(connectionString));
+
+// 2. Konfiguracja JWT
 var jwtKey = builder.Configuration["JwtSettings:SecretKey"] ?? "TutajWpiszBardzoDlugiSekretnyKluczDoPoC";
+var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
             ValidateIssuer = false,
             ValidateAudience = false,
-            ValidateLifetime = true
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
         };
     });
 
-// 4. Konfiguracja polityk dostępu
+// 3. Konfiguracja polityk dostępu
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("RequireOrganizerRole", policy => policy.RequireClaim("role", "Organizer"));
     options.AddPolicy("RequireAdminRole", policy => policy.RequireClaim("role", "Admin"));
 });
 
-
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// 4. Pipeline potoku żądań (Middleware)
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
-// Delete when production
 app.UseHttpsRedirection();
-
 app.UseStaticFiles();
 
 app.UseAuthentication();
@@ -56,4 +64,3 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
-
