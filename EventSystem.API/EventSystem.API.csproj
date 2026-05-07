@@ -8,23 +8,38 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Controllers\**" />
+    <Compile Remove="Extensions\**" />
+    <Compile Remove="Middleware\**" />
+    <Compile Remove="wwwroot\**" />
+    <Content Remove="Controllers\**" />
+    <Content Remove="Extensions\**" />
+    <Content Remove="Middleware\**" />
+    <Content Remove="wwwroot\**" />
+    <EmbeddedResource Remove="Controllers\**" />
+    <EmbeddedResource Remove="Extensions\**" />
+    <EmbeddedResource Remove="Middleware\**" />
+    <EmbeddedResource Remove="wwwroot\**" />
+    <None Remove="Controllers\**" />
+    <None Remove="Extensions\**" />
+    <None Remove="Middleware\**" />
+    <None Remove="wwwroot\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.OpenApi" Version="3.5.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\EventSystem.Core\EventSystem.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Controllers\" />
-    <Folder Include="Middleware\" />
-    <Folder Include="Extensions\" />
-    <Folder Include="wwwroot\uploads\" />
   </ItemGroup>
 
 </Project>

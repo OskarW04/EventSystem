@@ -1,29 +1,32 @@
 using EventSystem.Core.Data;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Rejestracja usług
-builder.Services.AddOpenApi();
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 builder.Services.AddControllers();
 
-// Pobranie Connection String z zabezpieczeniem przed nullem
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
-if (string.IsNullOrEmpty(connectionString))
+builder.Services.AddCors(options =>
 {
-    // Logika pomocnicza: jeśli nie znajdzie w Secrets/Environment, rzuci czytelnym błędem przy starcie
-    throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
-}
+    options.AddPolicy("FrontendClient", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000") // To change
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
-
-// 2. Konfiguracja JWT
-var jwtKey = builder.Configuration["JwtSettings:SecretKey"] ?? "TutajWpiszBardzoDlugiSekretnyKluczDoPoC";
+// 4. JWT + Cookies
+var jwtKey = builder.Configuration["JwtSettings:SecretKey"] ?? "dupa123";
 var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -38,25 +41,32 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
         };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (context.Request.Cookies.ContainsKey("X-Access-Token"))
+                {
+                    context.Token = context.Request.Cookies["X-Access-Token"];
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
-// 3. Konfiguracja polityk dostępu
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("RequireOrganizerRole", policy => policy.RequireClaim("role", "Organizer"));
-    options.AddPolicy("RequireAdminRole", policy => policy.RequireClaim("role", "Admin"));
-});
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// 4. Pipeline potoku żądań (Middleware)
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
+app.UseCors("FrontendClient");
 
 app.UseAuthentication();
 app.UseAuthorization();
