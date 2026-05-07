@@ -1,32 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <Compile Remove="DTOs\**" />
-    <Compile Remove="Exceptions\**" />
-    <Compile Remove="Interfaces\**" />
-    <Compile Remove="Mappings\**" />
-    <Compile Remove="Services\**" />
-    <EmbeddedResource Remove="DTOs\**" />
-    <EmbeddedResource Remove="Exceptions\**" />
-    <EmbeddedResource Remove="Interfaces\**" />
-    <EmbeddedResource Remove="Mappings\**" />
-    <EmbeddedResource Remove="Services\**" />
-    <None Remove="DTOs\**" />
-    <None Remove="Exceptions\**" />
-    <None Remove="Interfaces\**" />
-    <None Remove="Mappings\**" />
-    <None Remove="Services\**" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.5" />
+		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+	</ItemGroup>
 
 </Project>
