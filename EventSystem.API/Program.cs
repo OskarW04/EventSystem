@@ -27,7 +27,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendClient", policy =>
     {
-        policy.WithOrigins("http://localhost:3000") // Możesz to zmienić na środowisku produkcyjnym
+        policy.WithOrigins("http://localhost:3000", "https://eventsystem.oskarwitek.com") // Możesz to zmienić na środowisku produkcyjnym
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials();
