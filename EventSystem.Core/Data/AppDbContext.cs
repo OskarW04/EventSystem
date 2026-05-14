@@ -14,6 +14,10 @@ public class AppDbContext : DbContext
     public DbSet<OrganizationToken> OrganizationTokens { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<Ticket> Tickets { get; set; }
+    public DbSet<Speaker> Speakers { get; set; }
+    public DbSet<FaqEntry> FaqEntries { get; set; }
+    public DbSet<Feedback> Feedbacks { get; set; }
+    public DbSet<AgendaItem> AgendaItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -52,5 +56,10 @@ public class AppDbContext : DbContext
             .WithOne()
             .HasForeignKey<OrganizationToken>(ot => ot.UsedById)
             .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<AgendaItem>()
+            .HasMany(a => a.Speakers)
+            .WithMany(s => s.AgendaItems)
+            .UsingEntity(j => j.ToTable("AgendaItemSpeakers"));
     }
 }

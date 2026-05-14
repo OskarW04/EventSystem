@@ -17,4 +17,9 @@ public class Event
     public User Organizer { get; set; } = null!;
 
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+
+    public ICollection<Speaker> Speakers { get; set; } = new List<Speaker>();
+    public ICollection<AgendaItem> AgendaItems { get; set; } = new List<AgendaItem>();
+    public ICollection<FaqEntry> Faqs { get; set; } = new List<FaqEntry>();
+    public ICollection<Feedback> Feedbacks { get; set; } = new List<Feedback>();
 }

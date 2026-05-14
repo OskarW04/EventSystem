@@ -22,4 +22,6 @@ public class User
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
     public ICollection<Event> CreatedEvents { get; set; } = new List<Event>();
     public ICollection<OrganizationToken> CreatedTokens { get; set; } = new List<OrganizationToken>();
+
+    public ICollection<Feedback> Feedbacks { get; set; } = new List<Feedback>();
 }
