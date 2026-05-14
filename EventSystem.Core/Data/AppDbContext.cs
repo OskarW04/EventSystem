@@ -11,28 +11,31 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users { get; set; }
     public DbSet<Role> Roles { get; set; }
+    public DbSet<SocialLink> SocialLinks { get; set; }
     public DbSet<OrganizationToken> OrganizationTokens { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<Ticket> Tickets { get; set; }
-    public DbSet<Speaker> Speakers { get; set; }
-    public DbSet<FaqEntry> FaqEntries { get; set; }
-    public DbSet<Feedback> Feedbacks { get; set; }
-    public DbSet<AgendaItem> AgendaItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
+        // Unikalne pola
         modelBuilder.Entity<User>().HasIndex(u => u.Email).IsUnique();
         modelBuilder.Entity<Role>().HasIndex(r => r.Name).IsUnique();
         modelBuilder.Entity<OrganizationToken>().HasIndex(ot => ot.TokenValue).IsUnique();
 
+        // Zabezpieczenie: Jeden student może mieć tylko jeden bilet na dane wydarzenie
+        modelBuilder.Entity<Ticket>().HasIndex(t => new { t.EventId, t.StudentId }).IsUnique();
+
+        // Relacje dla wydarzeń
         modelBuilder.Entity<Event>()
             .HasOne(e => e.Organizer)
             .WithMany(u => u.CreatedEvents)
             .HasForeignKey(e => e.OrganizerId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Relacje dla biletów
         modelBuilder.Entity<Ticket>()
             .HasOne(t => t.Event)
             .WithMany(e => e.Tickets)
@@ -45,6 +48,7 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.StudentId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // Relacje dla tokenów
         modelBuilder.Entity<OrganizationToken>()
             .HasOne(ot => ot.CreatedBy)
             .WithMany(u => u.CreatedTokens)
@@ -57,9 +61,11 @@ public class AppDbContext : DbContext
             .HasForeignKey<OrganizationToken>(ot => ot.UsedById)
             .OnDelete(DeleteBehavior.Restrict);
 
-        modelBuilder.Entity<AgendaItem>()
-            .HasMany(a => a.Speakers)
-            .WithMany(s => s.AgendaItems)
-            .UsingEntity(j => j.ToTable("AgendaItemSpeakers"));
+        // Relacje dla Social Media
+        modelBuilder.Entity<SocialLink>()
+            .HasOne(sl => sl.User)
+            .WithMany(u => u.SocialLinks)
+            .HasForeignKey(sl => sl.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
