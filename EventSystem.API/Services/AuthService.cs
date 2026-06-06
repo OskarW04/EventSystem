@@ -13,11 +13,13 @@ public class AuthService
 {
     private readonly AppDbContext _context;
     private readonly IConfiguration _config;
+    private readonly IHttpContextAccessor _httpContextAccessor; // Dodane dla ciasteczek
 
-    public AuthService(AppDbContext context, IConfiguration config)
+    public AuthService(AppDbContext context, IConfiguration config, IHttpContextAccessor httpContextAccessor)
     {
         _context = context;
         _config = config;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<bool> RegisterStudentAsync(RegisterStudentDto dto)
@@ -75,7 +77,8 @@ public class AuthService
     public async Task<(string? Token, string? Error)> LoginAsync(LoginDto dto)
     {
         var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Email == dto.Email);
-        if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash)) return (null, "Błędny email lub hasło.");
+        if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash)) 
+            return (null, "Błędny email lub hasło.");
 
         var keyBytes = Encoding.UTF8.GetBytes(_config["JwtSettings:SecretKey"]!);
         var tokenDescriptor = new SecurityTokenDescriptor
@@ -89,7 +92,21 @@ public class AuthService
             Expires = DateTime.UtcNow.AddDays(7),
             SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256Signature)
         };
+        
         var tokenHandler = new JwtSecurityTokenHandler();
-        return (tokenHandler.WriteToken(tokenHandler.CreateToken(tokenDescriptor)), null);
+        var token = tokenHandler.WriteToken(tokenHandler.CreateToken(tokenDescriptor));
+
+        // --- KLUCZ: Ustawianie ciasteczka ---
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = false, // Musi być false dla HTTP / IP
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTime.UtcNow.AddDays(7)
+        };
+
+        _httpContextAccessor.HttpContext?.Response.Cookies.Append("X-Access-Token", token, cookieOptions);
+
+        return (token, null);
     }
 }

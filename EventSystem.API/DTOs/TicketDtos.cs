@@ -1,3 +1,11 @@
 ﻿namespace EventSystem.API.DTOs;
 
-public record TicketDto(int Id, string EventTitle, DateTime EventDate, string Location, string QrCodeContent, bool IsScanned);
+// Nazwy muszą pasować do interfejsu Ticket w React!
+public record TicketDto(
+    int Id, 
+    string EventTitle, 
+    DateTime EventDate, 
+    string EventLocation, // To naprawi brakującą lokalizację
+    string QrCodeContent, 
+    bool IsUsed           // W bazie masz IsScanned, ale frontend czyta isUsed
+);

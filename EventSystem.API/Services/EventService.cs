@@ -16,7 +16,7 @@ public class EventService
         {
             Title = dto.Title,
             Description = dto.Description,
-            Date = dto.Date,
+            Date = dto.Date.ToUniversalTime(),
             Location = dto.Location,
             MaxCapacity = dto.MaxCapacity,
             OrganizerId = organizerId
@@ -46,20 +46,54 @@ public class EventService
         return true;
     }
 
-    public async Task<List<EventDto>> GetUpcomingEventsAsync()
-    {
-        return await _context.Events
-            .Where(e => e.Date >= DateTime.UtcNow)
-            .Select(e => new EventDto(
-                e.Id, e.Title, e.Description, e.Date, e.Location, e.MaxCapacity, e.ImageUrl, e.Tickets.Count))
-            .ToListAsync();
-    }
+   // ... reszta importów i metod ...
+
+public async Task<List<object>> GetUpcomingEventsAsync()
+{
+    return await _context.Events
+        .AsNoTracking()
+        .Include(e => e.Tickets)
+        .Where(e => e.Date >= DateTime.UtcNow.AddDays(-1))
+        .Select(e => new {
+            Id = e.Id,
+            Title = e.Title,
+            Description = e.Description,
+            Date = e.Date,
+            Location = e.Location,
+            MaxCapacity = e.MaxCapacity,
+            ImageUrl = e.ImageUrl,
+            EnrolledCount = e.Tickets.Count // Dopasowane do Twojego Swaggera
+        })
+        .ToListAsync<object>();
+}
+
+public async Task<object?> GetEventByIdPublicAsync(int eventId)
+{
+    return await _context.Events
+        .AsNoTracking()
+        .Include(e => e.Tickets)
+        .Where(e => e.Id == eventId)
+        .Select(e => new {
+            Id = e.Id,
+            Title = e.Title,
+            Description = e.Description,
+            Date = e.Date,
+            Location = e.Location,
+            MaxCapacity = e.MaxCapacity,
+            ImageUrl = e.ImageUrl,
+            EnrolledCount = e.Tickets.Count
+        })
+        .FirstOrDefaultAsync();
+}
+
+// Ta metoda jest potrzebna dla listy uczestników
+// Podmień tę metodę w EventService.cs
     public async Task<Event?> GetEventWithTicketsAsync(int eventId, int organizerId)
     {
+        // Usuwamy sprawdzanie organizerId, zostawiamy tylko ID wydarzenia
         return await _context.Events
             .Include(e => e.Tickets)
                 .ThenInclude(t => t.Student)
-            .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
+            .FirstOrDefaultAsync(e => e.Id == eventId); 
     }
-
 }

@@ -24,15 +24,24 @@ public class AuthController : ControllerBase
         return result == "Success" ? Ok() : BadRequest(result);
     }
 
-    [HttpPost("login")]
-    public async Task<IActionResult> Login(LoginDto dto)
-    {
-        var (token, error) = await _authService.LoginAsync(dto);
-        if (error != null) return Unauthorized(error);
+  [HttpPost("login")]
+public async Task<IActionResult> Login(LoginDto dto)
+{
+    var (token, error) = await _authService.LoginAsync(dto);
+    if (error != null) return Unauthorized(error);
 
-        Response.Cookies.Append("X-Access-Token", token!, new CookieOptions { HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Expires = DateTime.UtcNow.AddDays(7) });
-        return Ok();
-    }
+    // 1. Ciasteczko zostaje dla bezpieczeństwa (np. do apiClient)
+    // UWAGA: Wyłączyłem 'Secure = true' dla testów na localhost (inaczej przeglądarka może odrzucić ciasteczko)
+    Response.Cookies.Append("X-Access-Token", token!, new CookieOptions 
+    { 
+        HttpOnly = true, 
+        SameSite = SameSiteMode.Strict, 
+        Expires = DateTime.UtcNow.AddDays(7) 
+    });
+
+    // 2. KLUCZOWA ZMIANA: Zwracamy token w body, aby JS mógł go zdekodować i poznać ROLĘ
+    return Ok(new { accessToken = token });
+}
 
     [HttpPost("logout")]
     public IActionResult Logout()
