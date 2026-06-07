@@ -1,0 +1,2176 @@
+// ============
+// EventSystem.API
+// appsettings.json
+
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "db_conn_string"
+  },
+  "JwtSettings": {
+    "SecretKey": "jwt_settings"
+  }
+}
+
+// ============
+// EventSystem.API
+// Program.cs
+
+using EventSystem.API.Services;
+using EventSystem.Core.Data;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 1. Konfiguracja bazy danych
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// 2. Rejestracja serwisów logiki biznesowej
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<SystemAdminService>();
+builder.Services.AddScoped<EventService>();
+builder.Services.AddScoped<TicketService>();
+builder.Services.AddScoped<UserService>();
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// 3. Konfiguracja CORS (niezbędna dla ciasteczek)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("FrontendClient", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "https://eventsystem.oskarwitek.com") // Możesz to zmienić na środowisku produkcyjnym
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
+// 4. Konfiguracja JWT i autoryzacji opartej o Cookies
+// Klucz musi mieć co najmniej 32 znaki dla algorytmu HMAC-SHA256
+var jwtKey = builder.Configuration["JwtSettings:SecretKey"] ?? "ToJestBardzoTajnyKluczZastepczyMinimum32Znaki";
+var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                // Odczyt tokenu JWT bezpośrednio z ciasteczka
+                if (context.Request.Cookies.ContainsKey("X-Access-Token"))
+                {
+                    context.Token = context.Request.Cookies["X-Access-Token"];
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    context.Database.Migrate();
+
+    if (!context.Roles.Any())
+    {
+        context.Roles.AddRange(
+            new EventSystem.Core.Entities.Role { Name = "Admin" },
+            new EventSystem.Core.Entities.Role { Name = "Organizer" },
+            new EventSystem.Core.Entities.Role { Name = "Student" }
+        );
+        context.SaveChanges();
+    }
+
+    if (!context.Users.Any(u => u.Role.Name == "Admin"))
+    {
+        var adminRole = context.Roles.First(r => r.Name == "Admin");
+        var adminEmail = app.Configuration["AdminSettings:Email"];
+        var adminPassword = app.Configuration["AdminSettings:Password"];
+
+        var adminUser = new EventSystem.Core.Entities.User
+        {
+            FirstName = "System",
+            LastName = "Admin",
+            Email = adminEmail,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword),
+            RoleId = adminRole.Id
+        };
+
+        context.Users.Add(adminUser);
+        context.SaveChanges();
+    }
+}
+
+// 5. Potok żądań HTTP
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+
+// Pozwala na serwowanie zdjęć wydarzeń (katalog wwwroot)
+app.UseStaticFiles();
+
+// CORS musi być przed weryfikacją autentykacji
+app.UseCors("FrontendClient");
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();
+
+// ============
+// EventSystem.Core\Data
+// AppDbContext.cs
+
+﻿using EventSystem.Core.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace EventSystem.Core.Data;
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    {
+    }
+
+    public DbSet<User> Users { get; set; }
+    public DbSet<Role> Roles { get; set; }
+    public DbSet<SocialLink> SocialLinks { get; set; }
+    public DbSet<OrganizationToken> OrganizationTokens { get; set; }
+    public DbSet<Event> Events { get; set; }
+    public DbSet<Ticket> Tickets { get; set; }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Unikalne pola
+        modelBuilder.Entity<User>().HasIndex(u => u.Email).IsUnique();
+        modelBuilder.Entity<Role>().HasIndex(r => r.Name).IsUnique();
+        modelBuilder.Entity<OrganizationToken>().HasIndex(ot => ot.TokenValue).IsUnique();
+
+        // Zabezpieczenie: Jeden student może mieć tylko jeden bilet na dane wydarzenie
+        modelBuilder.Entity<Ticket>().HasIndex(t => new { t.EventId, t.StudentId }).IsUnique();
+
+        // Relacje dla wydarzeń
+        modelBuilder.Entity<Event>()
+            .HasOne(e => e.Organizer)
+            .WithMany(u => u.CreatedEvents)
+            .HasForeignKey(e => e.OrganizerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Relacje dla biletów
+        modelBuilder.Entity<Ticket>()
+            .HasOne(t => t.Event)
+            .WithMany(e => e.Tickets)
+            .HasForeignKey(t => t.EventId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Ticket>()
+            .HasOne(t => t.Student)
+            .WithMany(u => u.Tickets)
+            .HasForeignKey(t => t.StudentId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Relacje dla tokenów
+        modelBuilder.Entity<OrganizationToken>()
+            .HasOne(ot => ot.CreatedBy)
+            .WithMany(u => u.CreatedTokens)
+            .HasForeignKey(ot => ot.CreatedById)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<OrganizationToken>()
+            .HasOne(ot => ot.UsedBy)
+            .WithOne()
+            .HasForeignKey<OrganizationToken>(ot => ot.UsedById)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Relacje dla Social Media
+        modelBuilder.Entity<SocialLink>()
+            .HasOne(sl => sl.User)
+            .WithMany(u => u.SocialLinks)
+            .HasForeignKey(sl => sl.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+// ============
+// EventSystem.Core\Entities
+// Event.cs
+
+﻿namespace EventSystem.Core.Entities;
+
+public class Event
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public DateTime Date { get; set; }
+    public string Location { get; set; } = string.Empty;
+    public int MaxCapacity { get; set; }
+    public string? ImageUrl { get; set; }
+
+    public int OrganizerId { get; set; }
+    public User Organizer { get; set; } = null!;
+
+    public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+}
+
+// ============
+// EventSystem.Core\Entities
+// OrganizationToken.cs
+
+﻿namespace EventSystem.Core.Entities;
+
+public class OrganizationToken
+{
+    public int Id { get; set; }
+    public string TokenValue { get; set; } = string.Empty;
+    public bool IsUsed { get; set; } = false;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public int CreatedById { get; set; }
+    public User CreatedBy { get; set; } = null!;
+
+    public int? UsedById { get; set; }
+    public User? UsedBy { get; set; }
+}
+
+// ============
+// EventSystem.Core\Entities
+// Role.cs
+
+﻿namespace EventSystem.Core.Entities;
+
+public class Role
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public ICollection<User> Users { get; set; } = new List<User>();
+}
+
+// ============
+// EventSystem.Core\Entities
+// SocialLink.cs
+
+﻿namespace EventSystem.Core.Entities;
+
+public class SocialLink
+{
+    public int Id { get; set; }
+    public string PlatformName { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+
+    public int UserId { get; set; }
+    public User User { get; set; } = null!;
+}
+
+// ============
+// EventSystem.Core\Entities
+// Ticket.cs
+
+﻿namespace EventSystem.Core.Entities;
+
+public class Ticket
+{
+    public int Id { get; set; }
+    public string QrCodeContent { get; set; } = string.Empty;
+    public bool IsScanned { get; set; } = false;
+    public DateTime? ScannedAt { get; set; }
+
+    public int EventId { get; set; }
+    public Event Event { get; set; } = null!;
+
+    public int StudentId { get; set; }
+    public User Student { get; set; } = null!;
+}
+
+// ============
+// EventSystem.Core\Entities
+// User.cs
+
+﻿namespace EventSystem.Core.Entities;
+
+public class User
+{
+    public int Id { get; set; }
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+
+    public string? Bio { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public int RoleId { get; set; }
+    public Role Role { get; set; } = null!;
+
+    public ICollection<SocialLink> SocialLinks { get; set; } = new List<SocialLink>();
+    public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+    public ICollection<Event> CreatedEvents { get; set; } = new List<Event>();
+    public ICollection<OrganizationToken> CreatedTokens { get; set; } = new List<OrganizationToken>();
+}
+
+// ============
+// EventSystem.Core\Migrations
+// 20260507175118_InitialCreate.cs
+
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace EventSystem.Core.Migrations
+{
+    /// <inheritdoc />
+    public partial class InitialCreate : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.CreateTable(
+                name: "Roles",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Name = table.Column<string>(type: "text", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Roles", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Users",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    FirstName = table.Column<string>(type: "text", nullable: false),
+                    LastName = table.Column<string>(type: "text", nullable: false),
+                    Email = table.Column<string>(type: "text", nullable: false),
+                    PasswordHash = table.Column<string>(type: "text", nullable: false),
+                    RoleId = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Users", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Users_Roles_RoleId",
+                        column: x => x.RoleId,
+                        principalTable: "Roles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Events",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Title = table.Column<string>(type: "text", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Date = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Location = table.Column<string>(type: "text", nullable: false),
+                    OrganizerId = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Events", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Events_Users_OrganizerId",
+                        column: x => x.OrganizerId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "OrganizationTokens",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    TokenValue = table.Column<string>(type: "text", nullable: false),
+                    IsUsed = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedById = table.Column<int>(type: "integer", nullable: false),
+                    UsedById = table.Column<int>(type: "integer", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OrganizationTokens", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_OrganizationTokens_Users_CreatedById",
+                        column: x => x.CreatedById,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_OrganizationTokens_Users_UsedById",
+                        column: x => x.UsedById,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Tickets",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    QrCodeContent = table.Column<string>(type: "text", nullable: false),
+                    IsScanned = table.Column<bool>(type: "boolean", nullable: false),
+                    ScannedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    EventId = table.Column<int>(type: "integer", nullable: false),
+                    StudentId = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Tickets", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Tickets_Events_EventId",
+                        column: x => x.EventId,
+                        principalTable: "Events",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_Tickets_Users_StudentId",
+                        column: x => x.StudentId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Events_OrganizerId",
+                table: "Events",
+                column: "OrganizerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrganizationTokens_CreatedById",
+                table: "OrganizationTokens",
+                column: "CreatedById");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrganizationTokens_TokenValue",
+                table: "OrganizationTokens",
+                column: "TokenValue",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrganizationTokens_UsedById",
+                table: "OrganizationTokens",
+                column: "UsedById",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Roles_Name",
+                table: "Roles",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Tickets_EventId",
+                table: "Tickets",
+                column: "EventId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Tickets_StudentId",
+                table: "Tickets",
+                column: "StudentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Users_Email",
+                table: "Users",
+                column: "Email",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Users_RoleId",
+                table: "Users",
+                column: "RoleId");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "OrganizationTokens");
+
+            migrationBuilder.DropTable(
+                name: "Tickets");
+
+            migrationBuilder.DropTable(
+                name: "Events");
+
+            migrationBuilder.DropTable(
+                name: "Users");
+
+            migrationBuilder.DropTable(
+                name: "Roles");
+        }
+    }
+}
+
+// ============
+// EventSystem.Core\Migrations
+// 20260507175118_InitialCreate.Designer.cs
+
+﻿// <auto-generated />
+using System;
+using EventSystem.Core.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace EventSystem.Core.Migrations
+{
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260507175118_InitialCreate")]
+    partial class InitialCreate
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrganizerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizerId");
+
+                    b.ToTable("Events");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.OrganizationToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("CreatedById")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("TokenValue")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("UsedById")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("TokenValue")
+                        .IsUnique();
+
+                    b.HasIndex("UsedById")
+                        .IsUnique();
+
+                    b.ToTable("OrganizationTokens");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Role", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Roles");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("EventId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsScanned")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("QrCodeContent")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ScannedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("StudentId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventId");
+
+                    b.HasIndex("StudentId");
+
+                    b.ToTable("Tickets");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("RoleId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "Organizer")
+                        .WithMany("CreatedEvents")
+                        .HasForeignKey("OrganizerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Organizer");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.OrganizationToken", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "CreatedBy")
+                        .WithMany("CreatedTokens")
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EventSystem.Core.Entities.User", "UsedBy")
+                        .WithOne()
+                        .HasForeignKey("EventSystem.Core.Entities.OrganizationToken", "UsedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("UsedBy");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.Event", "Event")
+                        .WithMany("Tickets")
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EventSystem.Core.Entities.User", "Student")
+                        .WithMany("Tickets")
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Event");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.Role", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.Navigation("Tickets");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Role", b =>
+                {
+                    b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.Navigation("CreatedEvents");
+
+                    b.Navigation("CreatedTokens");
+
+                    b.Navigation("Tickets");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+// ============
+// EventSystem.Core\Migrations
+// 20260514150208_UpdateEntitiesForPoC.cs
+
+﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace EventSystem.Core.Migrations
+{
+    /// <inheritdoc />
+    public partial class UpdateEntitiesForPoC : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropIndex(
+                name: "IX_Tickets_EventId",
+                table: "Tickets");
+
+            migrationBuilder.AddColumn<string>(
+                name: "Bio",
+                table: "Users",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "ImageUrl",
+                table: "Events",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<int>(
+                name: "MaxCapacity",
+                table: "Events",
+                type: "integer",
+                nullable: false,
+                defaultValue: 0);
+
+            migrationBuilder.CreateTable(
+                name: "SocialLinks",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    PlatformName = table.Column<string>(type: "text", nullable: false),
+                    Url = table.Column<string>(type: "text", nullable: false),
+                    UserId = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_SocialLinks", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_SocialLinks_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Tickets_EventId_StudentId",
+                table: "Tickets",
+                columns: new[] { "EventId", "StudentId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SocialLinks_UserId",
+                table: "SocialLinks",
+                column: "UserId");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "SocialLinks");
+
+            migrationBuilder.DropIndex(
+                name: "IX_Tickets_EventId_StudentId",
+                table: "Tickets");
+
+            migrationBuilder.DropColumn(
+                name: "Bio",
+                table: "Users");
+
+            migrationBuilder.DropColumn(
+                name: "ImageUrl",
+                table: "Events");
+
+            migrationBuilder.DropColumn(
+                name: "MaxCapacity",
+                table: "Events");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Tickets_EventId",
+                table: "Tickets",
+                column: "EventId");
+        }
+    }
+}
+
+// ============
+// EventSystem.Core\Migrations
+// 20260514150208_UpdateEntitiesForPoC.Designer.cs
+
+﻿// <auto-generated />
+using System;
+using EventSystem.Core.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace EventSystem.Core.Migrations
+{
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260514150208_UpdateEntitiesForPoC")]
+    partial class UpdateEntitiesForPoC
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("MaxCapacity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OrganizerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizerId");
+
+                    b.ToTable("Events");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.OrganizationToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("CreatedById")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("TokenValue")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("UsedById")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("TokenValue")
+                        .IsUnique();
+
+                    b.HasIndex("UsedById")
+                        .IsUnique();
+
+                    b.ToTable("OrganizationTokens");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Role", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Roles");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.SocialLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("PlatformName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SocialLinks");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("EventId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsScanned")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("QrCodeContent")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ScannedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("StudentId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("EventId", "StudentId")
+                        .IsUnique();
+
+                    b.ToTable("Tickets");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Bio")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("RoleId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "Organizer")
+                        .WithMany("CreatedEvents")
+                        .HasForeignKey("OrganizerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Organizer");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.OrganizationToken", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "CreatedBy")
+                        .WithMany("CreatedTokens")
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EventSystem.Core.Entities.User", "UsedBy")
+                        .WithOne()
+                        .HasForeignKey("EventSystem.Core.Entities.OrganizationToken", "UsedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("UsedBy");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.SocialLink", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "User")
+                        .WithMany("SocialLinks")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.Event", "Event")
+                        .WithMany("Tickets")
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EventSystem.Core.Entities.User", "Student")
+                        .WithMany("Tickets")
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Event");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.Role", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.Navigation("Tickets");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Role", b =>
+                {
+                    b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.Navigation("CreatedEvents");
+
+                    b.Navigation("CreatedTokens");
+
+                    b.Navigation("SocialLinks");
+
+                    b.Navigation("Tickets");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+// ============
+// EventSystem.Core\Migrations
+// AppDbContextModelSnapshot.cs
+
+﻿// <auto-generated />
+using System;
+using EventSystem.Core.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace EventSystem.Core.Migrations
+{
+    [DbContext(typeof(AppDbContext))]
+    partial class AppDbContextModelSnapshot : ModelSnapshot
+    {
+        protected override void BuildModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("MaxCapacity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OrganizerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizerId");
+
+                    b.ToTable("Events");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.OrganizationToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("CreatedById")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("TokenValue")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("UsedById")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("TokenValue")
+                        .IsUnique();
+
+                    b.HasIndex("UsedById")
+                        .IsUnique();
+
+                    b.ToTable("OrganizationTokens");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Role", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Roles");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.SocialLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("PlatformName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SocialLinks");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("EventId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsScanned")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("QrCodeContent")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ScannedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("StudentId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("EventId", "StudentId")
+                        .IsUnique();
+
+                    b.ToTable("Tickets");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Bio")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("RoleId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "Organizer")
+                        .WithMany("CreatedEvents")
+                        .HasForeignKey("OrganizerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Organizer");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.OrganizationToken", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "CreatedBy")
+                        .WithMany("CreatedTokens")
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EventSystem.Core.Entities.User", "UsedBy")
+                        .WithOne()
+                        .HasForeignKey("EventSystem.Core.Entities.OrganizationToken", "UsedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("UsedBy");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.SocialLink", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "User")
+                        .WithMany("SocialLinks")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.Event", "Event")
+                        .WithMany("Tickets")
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EventSystem.Core.Entities.User", "Student")
+                        .WithMany("Tickets")
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Event");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.Role", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
+                {
+                    b.Navigation("Tickets");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.Role", b =>
+                {
+                    b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.User", b =>
+                {
+                    b.Navigation("CreatedEvents");
+
+                    b.Navigation("CreatedTokens");
+
+                    b.Navigation("SocialLinks");
+
+                    b.Navigation("Tickets");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+// ============
+// EventSystem.API\Controllers
+// AdminController.cs
+
+﻿using System.Security.Claims;
+using EventSystem.API.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace EventSystem.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize(Roles = "Admin")]
+public class AdminController : ControllerBase
+{
+    private readonly SystemAdminService _adminService;
+    public AdminController(SystemAdminService adminService) => _adminService = adminService;
+
+    [HttpPost("generate-token")]
+    public async Task<IActionResult> GenerateToken()
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var token = await _adminService.GenerateOrganizationTokenAsync(adminId);
+        return Ok(new { Token = token });
+    }
+}
+
+// ============
+// EventSystem.API\Controllers
+// AuthController.cs
+
+﻿using EventSystem.API.DTOs;
+using EventSystem.API.Services;
+using Microsoft.AspNetCore.Mvc;
+
+namespace EventSystem.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase
+{
+    private readonly AuthService _authService;
+    public AuthController(AuthService authService) => _authService = authService;
+
+    [HttpPost("register/student")]
+    public async Task<IActionResult> RegisterStudent(RegisterStudentDto dto)
+    {
+        return await _authService.RegisterStudentAsync(dto) ? Ok() : BadRequest("Błąd rejestracji.");
+    }
+
+    [HttpPost("register/organizer")]
+    public async Task<IActionResult> RegisterOrganizer(RegisterOrganizerDto dto)
+    {
+        var result = await _authService.RegisterOrganizerAsync(dto);
+        return result == "Success" ? Ok() : BadRequest(result);
+    }
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginDto dto)
+    {
+        var (token, error) = await _authService.LoginAsync(dto);
+        if (error != null) return Unauthorized(error);
+
+        Response.Cookies.Append("X-Access-Token", token!, new CookieOptions { HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Expires = DateTime.UtcNow.AddDays(7) });
+        return Ok();
+    }
+
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete("X-Access-Token");
+        return Ok();
+    }
+}
+
+// ============
+// EventSystem.API\Controllers
+// EventsController.cs
+
+﻿using System.Security.Claims;
+using EventSystem.API.DTOs;
+using EventSystem.API.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace EventSystem.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class EventsController : ControllerBase
+{
+    private readonly EventService _eventService;
+    public EventsController(EventService eventService) => _eventService = eventService;
+
+    [HttpGet]
+    public async Task<IActionResult> GetAllUpcoming()
+    {
+        return Ok(await _eventService.GetUpcomingEventsAsync());
+    }
+
+    [Authorize(Roles = "Organizer")]
+    [HttpPost]
+    public async Task<IActionResult> CreateEvent(CreateEventDto dto)
+    {
+        var organizerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var eventId = await _eventService.CreateEventAsync(dto, organizerId);
+        return Ok(new { EventId = eventId });
+    }
+
+    [Authorize(Roles = "Organizer")]
+    [HttpPost("{id}/upload-image")]
+    public async Task<IActionResult> UploadImage(int id, IFormFile image)
+    {
+        var organizerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var success = await _eventService.UploadEventImageAsync(id, organizerId, image);
+        return success ? Ok() : BadRequest("Błąd zapisu zdjęcia.");
+    }
+
+    [Authorize(Roles = "Organizer")]
+    [HttpGet("{id}/attendees")]
+    public async Task<IActionResult> GetEventAttendees(int id)
+    {
+        var organizerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var ev = await _eventService.GetEventWithTicketsAsync(id, organizerId); // Będziesz musiał dopisać tę metodę w serwisie
+        if (ev == null) return NotFound("Wydarzenie nie istnieje lub nie masz dostępu.");
+
+        var attendees = ev.Tickets.Select(t => new
+        {
+            t.Id,
+            t.Student.FirstName,
+            t.Student.LastName,
+            t.IsScanned
+        });
+
+        return Ok(attendees);
+    }
+}
+
+// ============
+// EventSystem.API\Controllers
+// TicketsController.cs
+
+﻿using System.Security.Claims;
+using EventSystem.API.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace EventSystem.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class TicketsController : ControllerBase
+{
+    private readonly TicketService _ticketService;
+    public TicketsController(TicketService ticketService) => _ticketService = ticketService;
+
+    [Authorize(Roles = "Student")]
+    [HttpPost("enroll/{eventId}")]
+    public async Task<IActionResult> Enroll(int eventId)
+    {
+        var studentId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _ticketService.EnrollInEventAsync(eventId, studentId);
+        return result == "Success" ? Ok() : BadRequest(result);
+    }
+
+    [Authorize(Roles = "Student")]
+    [HttpGet("my")]
+    public async Task<IActionResult> GetMyTickets()
+    {
+        var studentId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return Ok(await _ticketService.GetMyTicketsAsync(studentId));
+    }
+
+    [Authorize(Roles = "Organizer")]
+    [HttpPost("scan/{ticketId}")]
+    public async Task<IActionResult> ScanTicket(int ticketId)
+    {
+        var organizerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _ticketService.ScanTicketAsync(ticketId, organizerId);
+        return result == "Success" ? Ok() : BadRequest(result);
+    }
+}
+
+// ============
+// EventSystem.API\Controllers
+// UsersController.cs
+
+﻿using System.Security.Claims;
+using EventSystem.API.DTOs;
+using EventSystem.API.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace EventSystem.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class UsersController : ControllerBase
+{
+    private readonly UserService _userService;
+    public UsersController(UserService userService) => _userService = userService;
+
+    [Authorize]
+    [HttpPut("profile")]
+    public async Task<IActionResult> UpdateProfile(UpdateProfileDto dto)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var success = await _userService.UpdateProfileAsync(userId, dto);
+        return success ? Ok() : BadRequest("Błąd aktualizacji.");
+    }
+
+    [HttpGet("public/{userId}")]
+    public async Task<IActionResult> GetPublicProfile(int userId)
+    {
+        var profile = await _userService.GetPublicProfileAsync(userId);
+        return profile != null ? Ok(profile) : NotFound();
+    }
+}
+
+// ============
+// EventSystem.API\DTOs
+// AuthDtos.cs
+
+﻿namespace EventSystem.API.DTOs;
+
+public record LoginDto(string Email, string Password);
+
+public record RegisterStudentDto(string FirstName, string LastName, string Email, string Password);
+
+public record RegisterOrganizerDto(string FirstName, string LastName, string Email, string Password, string Token);
+
+// ============
+// EventSystem.API\DTOs
+// EventDtos.cs
+
+﻿namespace EventSystem.API.DTOs;
+
+public record CreateEventDto(string Title, string Description, DateTime Date, string Location, int MaxCapacity);
+
+public record EventDto(int Id, string Title, string Description, DateTime Date, string Location, int MaxCapacity, string? ImageUrl, int EnrolledCount);
+
+// ============
+// EventSystem.API\DTOs
+// TicketDtos.cs
+
+﻿namespace EventSystem.API.DTOs;
+
+public record TicketDto(int Id, string EventTitle, DateTime EventDate, string Location, string QrCodeContent, bool IsScanned);
+
+// ============
+// EventSystem.API\DTOs
+// UserDtos.cs
+
+﻿namespace EventSystem.API.DTOs;
+
+public record SocialLinkDto(string PlatformName, string Url);
+
+public record UpdateProfileDto(string? Bio, List<SocialLinkDto> SocialLinks);
+
+public record PublicProfileDto(string FirstName, string LastName, string? Bio, List<SocialLinkDto> SocialLinks);
+
+// ============
+// EventSystem.API\Properties
+// launchSettings.json
+
+﻿{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5064",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "https://localhost:7250;http://localhost:5064",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
+
+// ============
+// EventSystem.API\Services
+// AuthService.cs
+
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using EventSystem.API.DTOs;
+using EventSystem.Core.Data;
+using EventSystem.Core.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+
+namespace EventSystem.API.Services;
+
+public class AuthService
+{
+    private readonly AppDbContext _context;
+    private readonly IConfiguration _config;
+
+    public AuthService(AppDbContext context, IConfiguration config)
+    {
+        _context = context;
+        _config = config;
+    }
+
+    public async Task<bool> RegisterStudentAsync(RegisterStudentDto dto)
+    {
+        if (await _context.Users.AnyAsync(u => u.Email == dto.Email)) return false;
+        var role = await _context.Roles.FirstOrDefaultAsync(r => r.Name == "Student");
+        if (role == null) return false;
+
+        var user = new User
+        {
+            FirstName = dto.FirstName,
+            LastName = dto.LastName,
+            Email = dto.Email,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+            RoleId = role.Id
+        };
+        _context.Users.Add(user);
+        return await _context.SaveChangesAsync() > 0;
+    }
+
+    public async Task<string> RegisterOrganizerAsync(RegisterOrganizerDto dto)
+    {
+        var dbToken = await _context.OrganizationTokens.FirstOrDefaultAsync(t => t.TokenValue == dto.Token && !t.IsUsed);
+        if (dbToken == null) return "Nieprawidłowy lub zużyty token.";
+        if (await _context.Users.AnyAsync(u => u.Email == dto.Email)) return "Email zajęty.";
+        var role = await _context.Roles.FirstOrDefaultAsync(r => r.Name == "Organizer");
+
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var user = new User
+            {
+                FirstName = dto.FirstName,
+                LastName = dto.LastName,
+                Email = dto.Email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+                RoleId = role!.Id
+            };
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            dbToken.IsUsed = true;
+            dbToken.UsedById = user.Id;
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return "Success";
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            return "Błąd bazy danych.";
+        }
+    }
+
+    public async Task<(string? Token, string? Error)> LoginAsync(LoginDto dto)
+    {
+        var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Email == dto.Email);
+        if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash)) return (null, "Błędny email lub hasło.");
+
+        var keyBytes = Encoding.UTF8.GetBytes(_config["JwtSettings:SecretKey"]!);
+        var tokenDescriptor = new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity(new[]
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.Role, user.Role.Name)
+            }),
+            Expires = DateTime.UtcNow.AddDays(7),
+            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256Signature)
+        };
+        var tokenHandler = new JwtSecurityTokenHandler();
+        return (tokenHandler.WriteToken(tokenHandler.CreateToken(tokenDescriptor)), null);
+    }
+}
+
+// ============
+// EventSystem.API\Services
+// EventService.cs
+
+﻿using EventSystem.API.DTOs;
+using EventSystem.Core.Data;
+using EventSystem.Core.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace EventSystem.API.Services;
+
+public class EventService
+{
+    private readonly AppDbContext _context;
+    public EventService(AppDbContext context) => _context = context;
+
+    public async Task<int> CreateEventAsync(CreateEventDto dto, int organizerId)
+    {
+        var newEvent = new Event
+        {
+            Title = dto.Title,
+            Description = dto.Description,
+            Date = dto.Date,
+            Location = dto.Location,
+            MaxCapacity = dto.MaxCapacity,
+            OrganizerId = organizerId
+        };
+        _context.Events.Add(newEvent);
+        await _context.SaveChangesAsync();
+        return newEvent.Id;
+    }
+
+    public async Task<bool> UploadEventImageAsync(int eventId, int organizerId, IFormFile image)
+    {
+        var ev = await _context.Events.FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
+        if (ev == null || image.Length == 0) return false;
+
+        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "events");
+        Directory.CreateDirectory(uploadsFolder);
+        var uniqueFileName = Guid.NewGuid() + Path.GetExtension(image.FileName);
+        var filePath = Path.Combine(uploadsFolder, uniqueFileName);
+
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await image.CopyToAsync(stream);
+        }
+
+        ev.ImageUrl = $"/images/events/{uniqueFileName}";
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<List<EventDto>> GetUpcomingEventsAsync()
+    {
+        return await _context.Events
+            .Where(e => e.Date >= DateTime.UtcNow)
+            .Select(e => new EventDto(
+                e.Id, e.Title, e.Description, e.Date, e.Location, e.MaxCapacity, e.ImageUrl, e.Tickets.Count))
+            .ToListAsync();
+    }
+    public async Task<Event?> GetEventWithTicketsAsync(int eventId, int organizerId)
+    {
+        return await _context.Events
+            .Include(e => e.Tickets)
+                .ThenInclude(t => t.Student)
+            .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
+    }
+
+}
+
+// ============
+// EventSystem.API\Services
+// SystemAdminService.cs
+
+﻿using EventSystem.Core.Data;
+using EventSystem.Core.Entities;
+
+namespace EventSystem.API.Services;
+
+public class SystemAdminService
+{
+    private readonly AppDbContext _context;
+    public SystemAdminService(AppDbContext context) => _context = context;
+
+    public async Task<string> GenerateOrganizationTokenAsync(int adminId)
+    {
+        var tokenValue = Guid.NewGuid().ToString("N");
+        var token = new OrganizationToken
+        {
+            TokenValue = tokenValue,
+            CreatedById = adminId
+        };
+        _context.OrganizationTokens.Add(token);
+        await _context.SaveChangesAsync();
+        return tokenValue;
+    }
+}
+
+// ============
+// EventSystem.API\Services
+// TicketService.cs
+
+﻿using EventSystem.API.DTOs;
+using EventSystem.Core.Data;
+using EventSystem.Core.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace EventSystem.API.Services;
+
+public class TicketService
+{
+    private readonly AppDbContext _context;
+    public TicketService(AppDbContext context) => _context = context;
+
+    public async Task<string> EnrollInEventAsync(int eventId, int studentId)
+    {
+        var ev = await _context.Events.Include(e => e.Tickets).FirstOrDefaultAsync(e => e.Id == eventId);
+        if (ev == null) return "Wydarzenie nie istnieje.";
+        if (ev.Date < DateTime.UtcNow) return "Wydarzenie już się odbyło.";
+        if (ev.Tickets.Count >= ev.MaxCapacity) return "Brak wolnych miejsc.";
+        if (ev.Tickets.Any(t => t.StudentId == studentId)) return "Masz już bilet na to wydarzenie.";
+
+        var ticket = new Ticket
+        {
+            EventId = eventId,
+            StudentId = studentId,
+            QrCodeContent = $"http://localhost:3000/public/profile/{studentId}" // URL na front, który odczyta bio
+        };
+        _context.Tickets.Add(ticket);
+        await _context.SaveChangesAsync();
+        return "Success";
+    }
+
+    public async Task<List<TicketDto>> GetMyTicketsAsync(int studentId)
+    {
+        return await _context.Tickets
+            .Include(t => t.Event)
+            .Where(t => t.StudentId == studentId)
+            .Select(t => new TicketDto(t.Id, t.Event.Title, t.Event.Date, t.Event.Location, t.QrCodeContent, t.IsScanned))
+            .ToListAsync();
+    }
+
+    public async Task<string> ScanTicketAsync(int ticketId, int organizerId)
+    {
+        var ticket = await _context.Tickets.Include(t => t.Event).FirstOrDefaultAsync(t => t.Id == ticketId);
+        if (ticket == null) return "Bilet nie istnieje.";
+        if (ticket.Event.OrganizerId != organizerId) return "Brak uprawnień do tego wydarzenia.";
+        if (ticket.IsScanned) return "Bilet został już zeskanowany.";
+
+        ticket.IsScanned = true;
+        ticket.ScannedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return "Success";
+    }
+}
+
+// ============
+// EventSystem.API\Services
+// UserService.cs
+
+﻿using EventSystem.API.DTOs;
+using EventSystem.Core.Data;
+using EventSystem.Core.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace EventSystem.API.Services;
+
+public class UserService
+{
+    private readonly AppDbContext _context;
+    public UserService(AppDbContext context) => _context = context;
+
+    public async Task<bool> UpdateProfileAsync(int userId, UpdateProfileDto dto)
+    {
+        var user = await _context.Users.Include(u => u.SocialLinks).FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return false;
+
+        user.Bio = dto.Bio;
+        _context.SocialLinks.RemoveRange(user.SocialLinks);
+
+        var linksToAdd = dto.SocialLinks.Take(5).Select(l => new SocialLink
+        {
+            PlatformName = l.PlatformName,
+            Url = l.Url,
+            UserId = userId
+        }).ToList();
+
+        _context.SocialLinks.AddRange(linksToAdd);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<PublicProfileDto?> GetPublicProfileAsync(int userId)
+    {
+        var user = await _context.Users.Include(u => u.SocialLinks).FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return null;
+
+        return new PublicProfileDto(
+            user.FirstName,
+            user.LastName,
+            user.Bio,
+            user.SocialLinks.Select(sl => new SocialLinkDto(sl.PlatformName, sl.Url)).ToList()
+        );
+    }
+}
