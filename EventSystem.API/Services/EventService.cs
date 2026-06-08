@@ -8,6 +8,7 @@ namespace EventSystem.API.Services;
 public class EventService
 {
     private readonly AppDbContext _context;
+
     public EventService(AppDbContext context) => _context = context;
 
     public async Task<int> CreateEventAsync(CreateEventDto dto, int organizerId)
@@ -16,11 +17,12 @@ public class EventService
         {
             Title = dto.Title,
             Description = dto.Description,
-            Date = dto.Date,
+            Date = dto.Date.ToUniversalTime(),
             Location = dto.Location,
             MaxCapacity = dto.MaxCapacity,
             OrganizerId = organizerId
         };
+
         _context.Events.Add(newEvent);
         await _context.SaveChangesAsync();
         return newEvent.Id;
@@ -28,20 +30,23 @@ public class EventService
 
     public async Task<bool> UploadEventImageAsync(int eventId, int organizerId, IFormFile image)
     {
-        var ev = await _context.Events.FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
-        if (ev == null || image.Length == 0) return false;
+        var ev = await _context.Events
+            .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
 
-        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "events");
+        if (ev == null || image.Length == 0)
+            return false;
+
+        var uploadsFolder = Path.Combine(
+            Directory.GetCurrentDirectory(), "wwwroot", "images", "events");
         Directory.CreateDirectory(uploadsFolder);
-        var uniqueFileName = Guid.NewGuid() + Path.GetExtension(image.FileName);
-        var filePath = Path.Combine(uploadsFolder, uniqueFileName);
 
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await image.CopyToAsync(stream);
-        }
+        var fileName = Guid.NewGuid() + Path.GetExtension(image.FileName);
+        var filePath = Path.Combine(uploadsFolder, fileName);
 
-        ev.ImageUrl = $"/images/events/{uniqueFileName}";
+        await using var stream = new FileStream(filePath, FileMode.Create);
+        await image.CopyToAsync(stream);
+
+        ev.ImageUrl = $"/images/events/{fileName}";
         await _context.SaveChangesAsync();
         return true;
     }
@@ -49,11 +54,20 @@ public class EventService
     public async Task<List<EventDto>> GetUpcomingEventsAsync()
     {
         return await _context.Events
+            .AsNoTracking()
             .Where(e => e.Date >= DateTime.UtcNow)
             .Select(e => new EventDto(
-                e.Id, e.Title, e.Description, e.Date, e.Location, e.MaxCapacity, e.ImageUrl, e.Tickets.Count))
+                e.Id,
+                e.Title,
+                e.Description,
+                e.Date,
+                e.Location,
+                e.MaxCapacity,
+                e.ImageUrl,
+                e.Tickets.Count))
             .ToListAsync();
     }
+
     public async Task<Event?> GetEventWithTicketsAsync(int eventId, int organizerId)
     {
         return await _context.Events
@@ -61,5 +75,4 @@ public class EventService
                 .ThenInclude(t => t.Student)
             .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
     }
-
 }

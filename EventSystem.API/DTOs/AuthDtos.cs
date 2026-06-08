@@ -2,6 +2,24 @@
 
 public record LoginDto(string Email, string Password);
 
-public record RegisterStudentDto(string FirstName, string LastName, string Email, string Password);
+public record RegisterStudentDto(
+    string FirstName,
+    string LastName,
+    string Email,
+    string Password
+);
 
-public record RegisterOrganizerDto(string FirstName, string LastName, string Email, string Password, string Token);
+public record RegisterOrganizerDto(
+    string FirstName,
+    string LastName,
+    string Email,
+    string Password,
+    string Token
+);
+
+public record AuthResponseDto(
+    string AccessToken,
+    string RefreshToken,
+    string Role,
+    int UserId
+);
