@@ -23,3 +23,11 @@ public record AuthResponseDto(
     string Role,
     int UserId
 );
+
+public record ForgotPasswordDto(string Email);
+
+public record ResetPasswordDto(
+    string Email,
+    string ResetToken,
+    string NewPassword
+);

@@ -31,6 +31,49 @@ public class EventsController : ControllerBase
         return Ok(ApiResponse<object>.Ok(new { eventId }, "Wydarzenie zostało utworzone"));
     }
 
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> GetEventDetails(int id)
+    {
+        var eventDetails = await _eventService.GetEventDetailsAsync(id);
+
+        return eventDetails != null
+            ? Ok(ApiResponse<object>.Ok(eventDetails))
+            : NotFound(ApiResponse.Fail("Wydarzenie nie istnieje"));
+    }
+
+    [Authorize(Roles = "Organizer")]
+    [HttpGet("my")]
+    public async Task<IActionResult> GetMyEvents()
+    {
+        var organizerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var events = await _eventService.GetOrganizerEventsAsync(organizerId);
+        return Ok(ApiResponse<object>.Ok(events));
+    }
+
+    [Authorize(Roles = "Organizer")]
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateEvent(int id, UpdateEventDto dto)
+    {
+        var organizerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _eventService.UpdateEventAsync(id, organizerId, dto);
+
+        return success
+            ? Ok(ApiResponse.Ok("Wydarzenie zostało zaktualizowane"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zaktualizować wydarzenia"));
+    }
+
+    [Authorize(Roles = "Organizer")]
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteEvent(int id)
+    {
+        var organizerId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _eventService.DeleteEventAsync(id, organizerId);
+
+        return success
+            ? Ok(ApiResponse.Ok("Wydarzenie zostało usunięte"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się usunąć wydarzenia"));
+    }
+
     [Authorize(Roles = "Organizer")]
     [HttpPost("{id:int}/upload-image")]
     public async Task<IActionResult> UploadImage(int id, IFormFile image)

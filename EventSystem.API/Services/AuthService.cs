@@ -14,12 +14,19 @@ public class AuthService
 {
     private readonly AppDbContext _context;
     private readonly IConfiguration _config;
+    private readonly ILogger<AuthService> _logger;
 
-    public AuthService(AppDbContext context, IConfiguration config)
+
+    public AuthService(
+    AppDbContext context,
+    IConfiguration config,
+    ILogger<AuthService> logger)
     {
         _context = context;
         _config = config;
+        _logger = logger;
     }
+
 
     public async Task<bool> RegisterStudentAsync(RegisterStudentDto dto)
     {
@@ -154,6 +161,80 @@ public class AuthService
             return false;
         }
     }
+
+    public async Task<bool> InitiatePasswordResetAsync(string email)
+    {
+        try
+        {
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == email);
+
+            if (user == null)
+            {
+                _logger.LogWarning("Password reset attempted for non-existent email: {Email}", email);
+                return true;
+            }
+
+            var resetToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+            // TODO: in production save token to db with expiration date
+            // send link with activation link to email
+
+            // TODO: email send implementation
+            // await _emailService.SendPasswordResetEmailAsync(user.Email, resetToken);
+
+            _logger.LogInformation("Password reset token generated for user: {Email}", email);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error initiating password reset for {Email}", email);
+            return false;
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> ResetPasswordAsync(ResetPasswordDto dto)
+    {
+        try
+        {
+            // TODO: in production verify token from database
+
+            // TODO: implement token verification logic
+
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == dto.Email);
+
+            if (user == null)
+                return (false, "Nieprawidłowy link resetowania hasła");
+
+            if (dto.NewPassword.Length < 6)
+                return (false, "Hasło musi mieć co najmniej 6 znaków");
+
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+
+            var refreshTokens = await _context.RefreshTokens
+                .Where(rt => rt.UserId == user.Id && rt.RevokedAt == null)
+                .ToListAsync();
+
+            foreach (var token in refreshTokens)
+                token.RevokedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Password reset successful for user: {Email}", dto.Email);
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting password for {Email}", dto.Email);
+            return (false, "Wystąpił błąd podczas resetowania hasła");
+        }
+    }
+
+
+    // ----- PRIVATE METHODS -----
 
     private string GenerateAccessToken(User user)
     {

@@ -148,7 +148,7 @@ if __name__ == "__main__":
     #               CONFIGURATION
     # ==========================================
 
-    DIRECTORY_TO_SCAN = ["./"]
+    DIRECTORY_TO_SCAN = ["../"]
     # EXTENSIONS_TO_PARSE = [
     #     ".py",
     #     ".sh",

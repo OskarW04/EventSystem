@@ -126,4 +126,21 @@ public class AuthController : ControllerBase
 
         return Ok(new { message = "Wylogowano pomyślnie" });
     }
+
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordDto dto)
+    {
+        var success = await _authService.InitiatePasswordResetAsync(dto.Email);
+        return Ok(new { message = "Jeśli podany adres e-mail istnieje, otrzymasz link do resetowania hasła" });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword(ResetPasswordDto dto)
+    {
+        var (success, error) = await _authService.ResetPasswordAsync(dto);
+
+        return success
+            ? Ok(new { message = "Hasło zostało zresetowane. Możesz się teraz zalogować" })
+            : BadRequest(new { message = error ?? "Nie udało się zresetować hasła" });
+    }
 }

@@ -75,4 +75,99 @@ public class EventService
                 .ThenInclude(t => t.Student)
             .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
     }
+
+    public async Task<EventDetailsDto?> GetEventDetailsAsync(int eventId)
+    {
+        var ev = await _context.Events
+            .AsNoTracking()
+            .Include(e => e.Organizer)
+            .Include(e => e.Tickets)
+            .FirstOrDefaultAsync(e => e.Id == eventId);
+
+        if (ev == null)
+            return null;
+
+        return new EventDetailsDto(
+            ev.Id,
+            ev.Title,
+            ev.Description,
+            ev.Date,
+            ev.Location,
+            ev.MaxCapacity,
+            ev.ImageUrl,
+            ev.Tickets.Count,
+            ev.OrganizerId,
+            ev.Organizer.FirstName,
+            ev.Organizer.LastName,
+            ev.Tickets.Count >= ev.MaxCapacity
+        );
+    }
+
+    public async Task<List<OrganizerEventDto>> GetOrganizerEventsAsync(int organizerId)
+    {
+        return await _context.Events
+            .AsNoTracking()
+            .Where(e => e.OrganizerId == organizerId)
+            .OrderByDescending(e => e.Date)
+            .Select(e => new OrganizerEventDto(
+                e.Id,
+                e.Title,
+                e.Date,
+                e.Location,
+                e.MaxCapacity,
+                e.Tickets.Count,
+                e.Tickets.Count(t => t.IsScanned),
+                e.ImageUrl
+            ))
+            .ToListAsync();
+    }
+
+    public async Task<(bool Success, string? Error)> UpdateEventAsync(
+        int eventId, int organizerId, UpdateEventDto dto)
+    {
+        var ev = await _context.Events
+            .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
+
+        if (ev == null)
+            return (false, "Wydarzenie nie istnieje lub nie masz do niego dostępu");
+
+        if (dto.MaxCapacity < ev.Tickets.Count)
+            return (false, $"Nie można zmniejszyć pojemności poniżej {ev.Tickets.Count} (liczba zapisanych uczestników)");
+
+        ev.Title = dto.Title;
+        ev.Description = dto.Description;
+        ev.Date = dto.Date.ToUniversalTime();
+        ev.Location = dto.Location;
+        ev.MaxCapacity = dto.MaxCapacity;
+
+        await _context.SaveChangesAsync();
+        return (true, null);
+    }
+
+    public async Task<(bool Success, string? Error)> DeleteEventAsync(int eventId, int organizerId)
+    {
+        var ev = await _context.Events
+            .Include(e => e.Tickets)
+            .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
+
+        if (ev == null)
+            return (false, "Wydarzenie nie istnieje lub nie masz do niego dostępu");
+
+
+        if (ev.Tickets.Any())
+            return (false, "Nie można usunąć wydarzenia z zapisanymi uczestnikami");
+
+        if (!string.IsNullOrEmpty(ev.ImageUrl))
+        {
+            var imagePath = Path.Combine(
+                Directory.GetCurrentDirectory(), "wwwroot", ev.ImageUrl.TrimStart('/'));
+
+            if (File.Exists(imagePath))
+                File.Delete(imagePath);
+        }
+
+        _context.Events.Remove(ev);
+        await _context.SaveChangesAsync();
+        return (true, null);
+    }
 }
