@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using EventSystem.API.Common;
 using EventSystem.API.DTOs;
 using EventSystem.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,7 @@ namespace EventSystem.API.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly UserService _userService;
+
     public UsersController(UserService userService) => _userService = userService;
 
     [Authorize]
@@ -19,13 +21,19 @@ public class UsersController : ControllerBase
     {
         var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         var success = await _userService.UpdateProfileAsync(userId, dto);
-        return success ? Ok() : BadRequest("Błąd aktualizacji.");
+
+        return success
+            ? Ok(ApiResponse.Ok("Profil został zaktualizowany"))
+            : BadRequest(ApiResponse.Fail("Nie udało się zaktualizować profilu"));
     }
 
-    [HttpGet("public/{userId}")]
+    [HttpGet("public/{userId:int}")]
     public async Task<IActionResult> GetPublicProfile(int userId)
     {
         var profile = await _userService.GetPublicProfileAsync(userId);
-        return profile != null ? Ok(profile) : NotFound();
+
+        return profile != null
+            ? Ok(ApiResponse<object>.Ok(profile))
+            : NotFound(ApiResponse.Fail("Nie znaleziono użytkownika"));
     }
 }

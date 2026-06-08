@@ -11,6 +11,7 @@ namespace EventSystem.API.Controllers;
 public class AdminController : ControllerBase
 {
     private readonly SystemAdminService _adminService;
+
     public AdminController(SystemAdminService adminService) => _adminService = adminService;
 
     [HttpPost("generate-token")]
@@ -18,6 +19,6 @@ public class AdminController : ControllerBase
     {
         var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         var token = await _adminService.GenerateOrganizationTokenAsync(adminId);
-        return Ok(new { Token = token });
+        return Ok(new { token });
     }
 }
