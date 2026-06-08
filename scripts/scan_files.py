@@ -148,9 +148,7 @@ if __name__ == "__main__":
     #               CONFIGURATION
     # ==========================================
 
-    DIRECTORY_TO_SCAN = [
-        "./"
-    ]
+    DIRECTORY_TO_SCAN = ["./"]
     # EXTENSIONS_TO_PARSE = [
     #     ".py",
     #     ".sh",
@@ -159,10 +157,10 @@ if __name__ == "__main__":
     #     ".json",
     # ]  # The extensions you want to target
     EXTENSIONS_TO_PARSE = [
-        ".json",
+        # ".json",
         ".cs",
-    ] 
-    OUTPUT_DIRECTORY = "./source_code"
+    ]
+    OUTPUT_DIRECTORY = "./"
     MAX_LINES_PER_FILE = 5000
 
     # Support both single directory (string) and multiple directories (list/tuple)
