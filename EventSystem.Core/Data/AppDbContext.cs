@@ -13,9 +13,8 @@ public class AppDbContext : DbContext
     public DbSet<OrganizationToken> OrganizationTokens { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<Ticket> Tickets { get; set; }
-
-    // NOWE
     public DbSet<RefreshToken> RefreshTokens { get; set; }
+    public DbSet<AuditLog> AuditLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -56,6 +55,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<RefreshToken>()
             .HasIndex(rt => rt.Token)
             .IsUnique();
+
+        // index : AuditLog.CreatedAt
+        // admin logs browsing
+        modelBuilder.Entity<AuditLog>()
+            .HasIndex(al => al.CreatedAt);
 
         // ROUTING
         // Event
@@ -105,5 +109,11 @@ public class AppDbContext : DbContext
             .HasForeignKey(rt => rt.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // AuditLog
+        modelBuilder.Entity<AuditLog>()
+            .HasOne(al => al.User)
+            .WithMany()
+            .HasForeignKey(al => al.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -63,6 +63,8 @@ public class UsersController : ControllerBase
             : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zaktualizować danych"));
     }
 
+
+
     [Authorize]
     [HttpDelete]
     public async Task<IActionResult> DeleteAccount(DeleteAccountDto dto)
