@@ -69,7 +69,9 @@ await DatabaseSeeder.SeedAsync(app);
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+
 app.UseCors("FrontendClient");
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
