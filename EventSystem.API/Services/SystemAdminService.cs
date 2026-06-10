@@ -121,6 +121,13 @@ public class SystemAdminService
             _context.RefreshTokens.RemoveRange(user.RefreshTokens);
             _context.Tickets.RemoveRange(user.Tickets);
 
+            // Odepnij zużyte tokeny organizacyjne (token pozostaje zużyty)
+            var usedTokens = await _context.OrganizationTokens
+                .Where(t => t.UsedById == userId)
+                .ToListAsync();
+            foreach (var token in usedTokens)
+                token.UsedById = null;
+
             // Usuń obrazy wydarzeń
             foreach (var ev in user.CreatedEvents.Where(e => !string.IsNullOrEmpty(e.ImageUrl)))
             {
