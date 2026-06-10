@@ -1,19 +1,21 @@
-﻿namespace EventSystem.API.DTOs;
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace EventSystem.API.DTOs;
 
 public record CreateEventDto(
-    string Title,
-    string Description,
-    DateTime Date,
-    string Location,
-    int MaxCapacity
+    [property: Required, StringLength(100, MinimumLength = 3)] string Title,
+    [property: Required, StringLength(5000, MinimumLength = 10)] string Description,
+    [property: Required] DateTime Date,
+    [property: Required, StringLength(200, MinimumLength = 2)] string Location,
+    [property: Range(1, 100000)] int MaxCapacity
 );
 
 public record UpdateEventDto(
-    string Title,
-    string Description,
-    DateTime Date,
-    string Location,
-    int MaxCapacity
+    [property: Required, StringLength(100, MinimumLength = 3)] string Title,
+    [property: Required, StringLength(5000, MinimumLength = 10)] string Description,
+    [property: Required] DateTime Date,
+    [property: Required, StringLength(200, MinimumLength = 2)] string Location,
+    [property: Range(1, 100000)] int MaxCapacity
 );
 
 
