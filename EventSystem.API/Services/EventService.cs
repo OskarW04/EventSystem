@@ -126,6 +126,7 @@ public class EventService
         int eventId, int organizerId, UpdateEventDto dto)
     {
         var ev = await _context.Events
+            .Include(e => e.Tickets)
             .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
 
         if (ev == null)
