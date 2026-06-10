@@ -1,9 +1,0 @@
-1. migracje do wyjebania
-przeniesienie z poca do dev-runu
-uzupełnienie TODO
-
-2. sprawdzenie dto, wylistowanie potrzebnych metryk pod zapytania http
-
-3. testy połączenia na urządzeniu mobilnym - localhost vs tunelling
-
-4. kontrolery api do przebudowania pod kątem desynchronizacji żądań +1000 użytkowników
