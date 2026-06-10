@@ -45,7 +45,8 @@ public class TicketService
             ev.Date,
             ev.Location,
             ticket.QrCodeContent,
-            ticket.IsScanned), null);
+            ticket.IsScanned,
+            ticket.StudentId), null);
     }
 
     public async Task<List<TicketDto>> GetMyTicketsAsync(int studentId)
@@ -60,7 +61,8 @@ public class TicketService
                 t.Event.Date,
                 t.Event.Location,
                 t.QrCodeContent,
-                t.IsScanned))
+                t.IsScanned,
+                t.StudentId))
             .ToListAsync();
     }
 
