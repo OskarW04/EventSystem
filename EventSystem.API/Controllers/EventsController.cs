@@ -99,6 +99,8 @@ public class EventsController : ControllerBase
         var attendees = ev.Tickets.Select(t => new
         {
             t.Id,
+            t.ScanToken,
+            StudentEmail = t.Student.Email,
             t.Student.FirstName,
             t.Student.LastName,
             t.IsScanned
