@@ -6,7 +6,8 @@ public record TicketDto(
     DateTime EventDate,
     string Location,
     string QrCodeContent,
-    bool IsScanned
+    bool IsScanned,
+    int StudentId
 );
 
 public record ScanResultDto(
