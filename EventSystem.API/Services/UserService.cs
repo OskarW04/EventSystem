@@ -148,6 +148,7 @@ public class UserService
 
         _context.SocialLinks.RemoveRange(user.SocialLinks);
         _context.RefreshTokens.RemoveRange(user.RefreshTokens);
+        _context.Tickets.RemoveRange(user.Tickets);
 
         foreach (var ev in user.CreatedEvents.Where(e => !string.IsNullOrEmpty(e.ImageUrl)))
         {
