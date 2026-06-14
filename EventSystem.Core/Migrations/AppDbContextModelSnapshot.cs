@@ -282,6 +282,12 @@ namespace EventSystem.Core.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("PasswordResetToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PasswordResetTokenExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("RoleId")
                         .HasColumnType("integer");
 

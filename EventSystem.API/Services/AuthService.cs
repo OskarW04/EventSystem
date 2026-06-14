@@ -15,16 +15,19 @@ public class AuthService
     private readonly AppDbContext _context;
     private readonly IConfiguration _config;
     private readonly ILogger<AuthService> _logger;
+    private readonly IEmailService _emailService;
 
 
     public AuthService(
     AppDbContext context,
     IConfiguration config,
-    ILogger<AuthService> logger)
+    ILogger<AuthService> logger,
+    IEmailService emailService)
     {
         _context = context;
         _config = config;
         _logger = logger;
+        _emailService = emailService;
     }
 
 
@@ -177,11 +180,11 @@ public class AuthService
 
             var resetToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
-            // TODO: in production save token to db with expiration date
-            // send link with activation link to email
+            user.PasswordResetToken = resetToken;
+            user.PasswordResetTokenExpiry = DateTime.UtcNow.AddHours(1);
+            await _context.SaveChangesAsync();
 
-            // TODO: email send implementation
-            // await _emailService.SendPasswordResetEmailAsync(user.Email, resetToken);
+            await _emailService.SendPasswordResetEmailAsync(user.Email, resetToken);
 
             _logger.LogInformation("Password reset token generated for user: {Email}", email);
 
@@ -198,20 +201,22 @@ public class AuthService
     {
         try
         {
-            // TODO: in production verify token from database
-
-            // TODO: implement token verification logic
-
             var user = await _context.Users
                 .FirstOrDefaultAsync(u => u.Email == dto.Email);
 
-            if (user == null)
-                return (false, "Nieprawidłowy link resetowania hasła");
+            if (user == null ||
+                user.PasswordResetToken == null ||
+                user.PasswordResetToken != dto.ResetToken ||
+                user.PasswordResetTokenExpiry == null ||
+                user.PasswordResetTokenExpiry < DateTime.UtcNow)
+                return (false, "Nieprawidłowy lub wygasły link resetowania hasła");
 
             if (dto.NewPassword.Length < 6)
                 return (false, "Hasło musi mieć co najmniej 6 znaków");
 
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            user.PasswordResetToken = null;
+            user.PasswordResetTokenExpiry = null;
 
             var refreshTokens = await _context.RefreshTokens
                 .Where(rt => rt.UserId == user.Id && rt.RevokedAt == null)
