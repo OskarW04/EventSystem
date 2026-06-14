@@ -207,6 +207,145 @@ public class SystemAdminService
         }
     }
 
+    public async Task<List<AdminEventDto>> GetAllEventsAsync(int adminId)
+    {
+        var events = await _context.Events
+            .AsNoTracking()
+            .Include(e => e.Organizer)
+            .OrderByDescending(e => e.Date)
+            .Select(e => new AdminEventDto(
+                e.Id,
+                e.Title,
+                e.Description,
+                e.Date,
+                e.EndDate,
+                e.Location,
+                e.Lat,
+                e.Lng,
+                e.MaxCapacity,
+                e.ImageUrl,
+                e.Tickets.Count,
+                e.Tickets.Count(t => t.IsScanned),
+                e.OrganizerId,
+                e.Organizer.FirstName,
+                e.Organizer.LastName,
+                e.Organizer.Email
+            ))
+            .ToListAsync();
+
+        await LogActionAsync(adminId, "ViewEvents", "Event", null,
+            $"Przeglądanie listy wydarzeń (liczba: {events.Count})");
+
+        return events;
+    }
+
+    public async Task<AdminEventDto?> GetEventDetailsAsync(int adminId, int eventId)
+    {
+        var ev = await _context.Events
+            .AsNoTracking()
+            .Include(e => e.Organizer)
+            .Where(e => e.Id == eventId)
+            .Select(e => new AdminEventDto(
+                e.Id,
+                e.Title,
+                e.Description,
+                e.Date,
+                e.EndDate,
+                e.Location,
+                e.Lat,
+                e.Lng,
+                e.MaxCapacity,
+                e.ImageUrl,
+                e.Tickets.Count,
+                e.Tickets.Count(t => t.IsScanned),
+                e.OrganizerId,
+                e.Organizer.FirstName,
+                e.Organizer.LastName,
+                e.Organizer.Email
+            ))
+            .FirstOrDefaultAsync();
+
+        return ev;
+    }
+
+    public async Task<(bool Success, string? Error)> UpdateEventAsync(
+        int adminId, int eventId, UpdateEventDto dto)
+    {
+        try
+        {
+            var ev = await _context.Events
+                .Include(e => e.Tickets)
+                .FirstOrDefaultAsync(e => e.Id == eventId);
+
+            if (ev == null)
+                return (false, "Wydarzenie nie istnieje");
+
+            if (dto.MaxCapacity < ev.Tickets.Count)
+                return (false, $"Nie można zmniejszyć pojemności poniżej {ev.Tickets.Count} (liczba zapisanych uczestników)");
+
+            ev.Title = dto.Title;
+            ev.Description = dto.Description;
+            ev.Date = dto.Date.ToUniversalTime();
+            ev.EndDate = dto.EndDate?.ToUniversalTime();
+            ev.Location = dto.Location;
+            ev.Lat = dto.Lat;
+            ev.Lng = dto.Lng;
+            ev.MaxCapacity = dto.MaxCapacity;
+
+            await _context.SaveChangesAsync();
+
+            await LogActionAsync(adminId, "UpdateEvent", "Event", eventId,
+                $"Zaktualizowano wydarzenie: {ev.Title}");
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating event {EventId}", eventId);
+            return (false, "Nie udało się zaktualizować wydarzenia");
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> DeleteEventAsync(int adminId, int eventId)
+    {
+        try
+        {
+            var ev = await _context.Events
+                .Include(e => e.Tickets)
+                .FirstOrDefaultAsync(e => e.Id == eventId);
+
+            if (ev == null)
+                return (false, "Wydarzenie nie istnieje");
+
+            var title = ev.Title;
+
+            // Usuń bilety powiązane z wydarzeniem (kaskada w bazie również to obsługuje)
+            _context.Tickets.RemoveRange(ev.Tickets);
+
+            if (!string.IsNullOrEmpty(ev.ImageUrl))
+            {
+                var imagePath = Path.Combine(
+                    Directory.GetCurrentDirectory(), "wwwroot", ev.ImageUrl.TrimStart('/'));
+
+                if (File.Exists(imagePath))
+                    File.Delete(imagePath);
+            }
+
+            _context.Events.Remove(ev);
+            await _context.SaveChangesAsync();
+
+            await LogActionAsync(adminId, "DeleteEvent", "Event", eventId,
+                $"Usunięto wydarzenie: {title}");
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting event {EventId}", eventId);
+            return (false, "Nie udało się usunąć wydarzenia");
+        }
+    }
+
     public async Task<List<AuditLogDto>> GetLogsAsync(int adminId, int limit = 100)
     {
         var logs = await _context.AuditLogs

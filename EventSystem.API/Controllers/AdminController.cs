@@ -65,6 +65,47 @@ public class AdminController : ControllerBase
             : BadRequest(ApiResponse.Fail("Nie udało się zaktualizować roli użytkownika"));
     }
 
+    [HttpGet("events")]
+    public async Task<IActionResult> GetEvents()
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var events = await _adminService.GetAllEventsAsync(adminId);
+        return Ok(ApiResponse<object>.Ok(events));
+    }
+
+    [HttpGet("events/{eventId:int}")]
+    public async Task<IActionResult> GetEvent(int eventId)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var ev = await _adminService.GetEventDetailsAsync(adminId, eventId);
+
+        return ev != null
+            ? Ok(ApiResponse<object>.Ok(ev))
+            : NotFound(ApiResponse.Fail("Wydarzenie nie istnieje"));
+    }
+
+    [HttpPut("events/{eventId:int}")]
+    public async Task<IActionResult> UpdateEvent(int eventId, [FromBody] UpdateEventDto dto)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _adminService.UpdateEventAsync(adminId, eventId, dto);
+
+        return success
+            ? Ok(ApiResponse.Ok("Wydarzenie zostało zaktualizowane"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zaktualizować wydarzenia"));
+    }
+
+    [HttpDelete("events/{eventId:int}")]
+    public async Task<IActionResult> DeleteEvent(int eventId)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _adminService.DeleteEventAsync(adminId, eventId);
+
+        return success
+            ? Ok(ApiResponse.Ok("Wydarzenie zostało usunięte"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się usunąć wydarzenia"));
+    }
+
     [HttpGet("logs")]
     public async Task<IActionResult> GetLogs([FromQuery] int limit = 100)
     {

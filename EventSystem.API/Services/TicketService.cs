@@ -19,6 +19,10 @@ public class TicketService
 
         if (ev == null)
             return (null, "Podane wydarzenie nie istnieje");
+        // Organizator nie może zapisać się na własne wydarzenie - nawet jeśli
+        // jego rola została w międzyczasie zmieniona na Student.
+        if (ev.OrganizerId == studentId)
+            return (null, "Nie możesz zapisać się na własne wydarzenie");
         if (ev.Date < DateTime.UtcNow)
             return (null, "To wydarzenie już się odbyło");
         if (ev.Tickets.Count >= ev.MaxCapacity)

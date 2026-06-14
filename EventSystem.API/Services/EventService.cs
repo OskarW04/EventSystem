@@ -18,7 +18,10 @@ public class EventService
             Title = dto.Title,
             Description = dto.Description,
             Date = dto.Date.ToUniversalTime(),
+            EndDate = dto.EndDate?.ToUniversalTime(),
             Location = dto.Location,
+            Lat = dto.Lat,
+            Lng = dto.Lng,
             MaxCapacity = dto.MaxCapacity,
             OrganizerId = organizerId
         };
@@ -61,7 +64,10 @@ public class EventService
                 e.Title,
                 e.Description,
                 e.Date,
+                e.EndDate,
                 e.Location,
+                e.Lat,
+                e.Lng,
                 e.MaxCapacity,
                 e.ImageUrl,
                 e.Tickets.Count))
@@ -92,7 +98,10 @@ public class EventService
             ev.Title,
             ev.Description,
             ev.Date,
+            ev.EndDate,
             ev.Location,
+            ev.Lat,
+            ev.Lng,
             ev.MaxCapacity,
             ev.ImageUrl,
             ev.Tickets.Count,
@@ -113,7 +122,10 @@ public class EventService
                 e.Id,
                 e.Title,
                 e.Date,
+                e.EndDate,
                 e.Location,
+                e.Lat,
+                e.Lng,
                 e.MaxCapacity,
                 e.Tickets.Count,
                 e.Tickets.Count(t => t.IsScanned),
@@ -138,7 +150,10 @@ public class EventService
         ev.Title = dto.Title;
         ev.Description = dto.Description;
         ev.Date = dto.Date.ToUniversalTime();
+        ev.EndDate = dto.EndDate?.ToUniversalTime();
         ev.Location = dto.Location;
+        ev.Lat = dto.Lat;
+        ev.Lng = dto.Lng;
         ev.MaxCapacity = dto.MaxCapacity;
 
         await _context.SaveChangesAsync();

@@ -5,8 +5,19 @@ public class Event
     public int Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+
+    // Data/godzina rozpoczęcia. Zachowana jako "Date" dla kompatybilności wstecznej.
     public DateTime Date { get; set; }
+
+    // Data/godzina zakończenia. Opcjonalna - starsze wydarzenia mogą jej nie mieć.
+    public DateTime? EndDate { get; set; }
+
     public string Location { get; set; } = string.Empty;
+
+    // Współrzędne geograficzne (OpenStreetMap / Leaflet). Opcjonalne.
+    public double? Lat { get; set; }
+    public double? Lng { get; set; }
+
     public int MaxCapacity { get; set; }
     public string? ImageUrl { get; set; }
 
