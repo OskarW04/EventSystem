@@ -316,6 +316,33 @@ public class SystemAdminService
         }
     }
 
+    public async Task<(bool Success, string? Error)> UploadEventImageAsync(
+        int adminId, int eventId, IFormFile image)
+    {
+        try
+        {
+            if (image.Length == 0)
+                return (false, "Nie przesłano pliku");
+
+            var ev = await _context.Events.FirstOrDefaultAsync(e => e.Id == eventId);
+            if (ev == null)
+                return (false, "Wydarzenie nie istnieje");
+
+            ev.ImageUrl = await EventImageStorage.SaveAsync(image);
+            await _context.SaveChangesAsync();
+
+            await LogActionAsync(adminId, "UploadEventImage", "Event", eventId,
+                $"Zaktualizowano baner wydarzenia: {ev.Title}");
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading image for event {EventId}", eventId);
+            return (false, "Nie udało się zapisać zdjęcia");
+        }
+    }
+
     public async Task<(bool Success, string? Error)> DeleteEventAsync(int adminId, int eventId)
     {
         try
@@ -435,6 +462,34 @@ public class SystemAdminService
             _logger.LogError(ex, "Error deleting ticket {TicketId}", ticketId);
             return (false, "Nie udało się usunąć biletu");
         }
+    }
+
+    public async Task<(ScanResultDto? Result, string? Error)> ScanTicketAsync(int adminId, Guid scanToken)
+    {
+        var ticket = await _context.Tickets
+            .Include(t => t.Event)
+            .Include(t => t.Student)
+            .FirstOrDefaultAsync(t => t.ScanToken == scanToken);
+
+        if (ticket == null)
+            return (null, "Nie znaleziono biletu o podanym kodzie");
+        // Admin może wpuścić uczestnika na dowolne wydarzenie - brak sprawdzania właściciela.
+        if (ticket.IsScanned)
+            return (null, $"Ten bilet został już zeskanowany o godzinie {ticket.ScannedAt:HH:mm:ss}");
+
+        ticket.IsScanned = true;
+        ticket.ScannedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        await LogActionAsync(adminId, "ScanTicket", "Ticket", ticket.Id,
+            $"Ręczny check-in biletu #{ticket.Id} (wydarzenie: {ticket.Event.Title})");
+
+        return (new ScanResultDto(
+            ticket.Id,
+            ticket.Student.FirstName,
+            ticket.Student.LastName,
+            ticket.Event.Title,
+            ticket.ScannedAt!.Value), null);
     }
 
     public async Task<(bool Success, string? Error)> SendTokenEmailAsync(

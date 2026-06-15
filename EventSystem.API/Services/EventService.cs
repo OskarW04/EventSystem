@@ -40,17 +40,7 @@ public class EventService
         if (ev == null || image.Length == 0)
             return false;
 
-        var uploadsFolder = Path.Combine(
-            Directory.GetCurrentDirectory(), "wwwroot", "images", "events");
-        Directory.CreateDirectory(uploadsFolder);
-
-        var fileName = Guid.NewGuid() + Path.GetExtension(image.FileName);
-        var filePath = Path.Combine(uploadsFolder, fileName);
-
-        await using var stream = new FileStream(filePath, FileMode.Create);
-        await image.CopyToAsync(stream);
-
-        ev.ImageUrl = $"/images/events/{fileName}";
+        ev.ImageUrl = await EventImageStorage.SaveAsync(image);
         await _context.SaveChangesAsync();
         return true;
     }

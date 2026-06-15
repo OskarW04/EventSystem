@@ -95,6 +95,17 @@ public class AdminController : ControllerBase
             : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zaktualizować wydarzenia"));
     }
 
+    [HttpPost("events/{eventId:int}/upload-image")]
+    public async Task<IActionResult> UploadEventImage(int eventId, IFormFile image)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _adminService.UploadEventImageAsync(adminId, eventId, image);
+
+        return success
+            ? Ok(ApiResponse.Ok("Zdjęcie zostało zapisane"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zapisać zdjęcia. Sprawdź czy plik jest prawidłowy"));
+    }
+
     [HttpDelete("events/{eventId:int}")]
     public async Task<IActionResult> DeleteEvent(int eventId)
     {
@@ -126,6 +137,17 @@ public class AdminController : ControllerBase
         return success
             ? Ok(ApiResponse.Ok("Skan biletu został zresetowany"))
             : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zresetować biletu"));
+    }
+
+    [HttpPost("tickets/{scanToken:guid}/scan")]
+    public async Task<IActionResult> ScanTicket(Guid scanToken)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (result, error) = await _adminService.ScanTicketAsync(adminId, scanToken);
+
+        return error != null
+            ? BadRequest(ApiResponse.Fail(error))
+            : Ok(ApiResponse<object>.Ok(result!, "Bilet został zweryfikowany pomyślnie"));
     }
 
     [HttpDelete("tickets/{ticketId:int}")]
