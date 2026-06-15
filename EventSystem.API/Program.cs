@@ -18,6 +18,9 @@ builder.Services.AddScoped<EventService>();
 builder.Services.AddScoped<TicketService>();
 builder.Services.AddScoped<UserService>();
 
+// #4 - cykliczna wysyłka maili "rejestracja otwarta" do pre-saverów
+builder.Services.AddHostedService<RegistrationOpeningNotifier>();
+
 builder.Services.AddControllers();
 
 builder.Services.AddCors(options =>

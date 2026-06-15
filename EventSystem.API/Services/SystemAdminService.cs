@@ -104,6 +104,7 @@ public class SystemAdminService
                 .Include(u => u.CreatedEvents)
                     .ThenInclude(e => e.Tickets)
                 .Include(u => u.Tickets)
+                .Include(u => u.Presaves)
                 .Include(u => u.SocialLinks)
                 .Include(u => u.RefreshTokens)
                 .FirstOrDefaultAsync(u => u.Id == userId);
@@ -125,6 +126,7 @@ public class SystemAdminService
             _context.SocialLinks.RemoveRange(user.SocialLinks);
             _context.RefreshTokens.RemoveRange(user.RefreshTokens);
             _context.Tickets.RemoveRange(user.Tickets);
+            _context.EventPresaves.RemoveRange(user.Presaves);
 
             // Odepnij zużyte tokeny organizacyjne (token pozostaje zużyty)
             var usedTokens = await _context.OrganizationTokens
@@ -214,6 +216,8 @@ public class SystemAdminService
 
     public async Task<List<AdminEventDto>> GetAllEventsAsync(int adminId)
     {
+        var clicksCutoff = DateTime.UtcNow.AddHours(-24);
+
         var events = await _context.Events
             .AsNoTracking()
             .Include(e => e.Organizer)
@@ -236,7 +240,10 @@ public class SystemAdminService
                 e.Organizer.FirstName,
                 e.Organizer.LastName,
                 e.Organizer.Email,
-                e.Organizer.FirstName + " " + e.Organizer.LastName
+                e.Organizer.FirstName + " " + e.Organizer.LastName,
+                e.Views.Count(v => v.CreatedAt >= clicksCutoff),
+                e.RegistrationOpensAt,
+                e.Presaves.Count
             ))
             .ToListAsync();
 
@@ -248,6 +255,8 @@ public class SystemAdminService
 
     public async Task<AdminEventDto?> GetEventDetailsAsync(int adminId, int eventId)
     {
+        var clicksCutoff = DateTime.UtcNow.AddHours(-24);
+
         var ev = await _context.Events
             .AsNoTracking()
             .Include(e => e.Organizer)
@@ -270,7 +279,10 @@ public class SystemAdminService
                 e.Organizer.FirstName,
                 e.Organizer.LastName,
                 e.Organizer.Email,
-                e.Organizer.FirstName + " " + e.Organizer.LastName
+                e.Organizer.FirstName + " " + e.Organizer.LastName,
+                e.Views.Count(v => v.CreatedAt >= clicksCutoff),
+                e.RegistrationOpensAt,
+                e.Presaves.Count
             ))
             .FirstOrDefaultAsync();
 
@@ -301,6 +313,7 @@ public class SystemAdminService
             ev.Lat = dto.Lat;
             ev.Lng = dto.Lng;
             ev.MaxCapacity = dto.MaxCapacity;
+            ev.RegistrationOpensAt = dto.RegistrationOpensAt?.ToUniversalTime();
 
             await _context.SaveChangesAsync();
 

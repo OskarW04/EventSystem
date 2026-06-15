@@ -13,6 +13,8 @@ public class AppDbContext : DbContext
     public DbSet<OrganizationToken> OrganizationTokens { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<Ticket> Tickets { get; set; }
+    public DbSet<EventView> EventViews { get; set; }
+    public DbSet<EventPresave> EventPresaves { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
 
@@ -50,7 +52,18 @@ public class AppDbContext : DbContext
             .HasIndex(t => t.ScanToken)
             .IsUnique();
 
-        // index : RefreshToken.Token 
+        // index : EventView.EventId + EventView.CreatedAt
+        // szybkie liczenie clicks24h (odsłony z ostatnich 24h)
+        modelBuilder.Entity<EventView>()
+            .HasIndex(v => new { v.EventId, v.CreatedAt });
+
+        // index : EventPresave.EventId + EventPresave.StudentId
+        // jeden pre-save per student per wydarzenie
+        modelBuilder.Entity<EventPresave>()
+            .HasIndex(p => new { p.EventId, p.StudentId })
+            .IsUnique();
+
+        // index : RefreshToken.Token
         // authentication
         modelBuilder.Entity<RefreshToken>()
             .HasIndex(rt => rt.Token)
@@ -80,6 +93,27 @@ public class AppDbContext : DbContext
             .HasOne(t => t.Student)
             .WithMany(u => u.Tickets)
             .HasForeignKey(t => t.StudentId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // EventView - kasowane razem z wydarzeniem
+        modelBuilder.Entity<EventView>()
+            .HasOne(v => v.Event)
+            .WithMany(e => e.Views)
+            .HasForeignKey(v => v.EventId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // EventPresave - kasowane razem z wydarzeniem; po stronie studenta Restrict
+        // (czyszczone ręcznie przy usuwaniu użytkownika, jak Tickets)
+        modelBuilder.Entity<EventPresave>()
+            .HasOne(p => p.Event)
+            .WithMany(e => e.Presaves)
+            .HasForeignKey(p => p.EventId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<EventPresave>()
+            .HasOne(p => p.Student)
+            .WithMany(u => u.Presaves)
+            .HasForeignKey(p => p.StudentId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // OrganizationToken

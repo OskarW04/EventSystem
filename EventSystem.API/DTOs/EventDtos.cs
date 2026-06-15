@@ -11,7 +11,9 @@ public record CreateEventDto(
     [StringLength(200)] string? LocationName,
     double? Lat,
     double? Lng,
-    [Range(1, 100000)] int MaxCapacity
+    [Range(1, 100000)] int MaxCapacity,
+    // #4 - null = rejestracja otwarta od razu
+    DateTime? RegistrationOpensAt
 );
 
 public record UpdateEventDto(
@@ -23,7 +25,9 @@ public record UpdateEventDto(
     [StringLength(200)] string? LocationName,
     double? Lat,
     double? Lng,
-    [Range(1, 100000)] int MaxCapacity
+    [Range(1, 100000)] int MaxCapacity,
+    // #4 - null = rejestracja otwarta od razu
+    DateTime? RegistrationOpensAt
 );
 
 
@@ -39,7 +43,10 @@ public record EventDto(
     double? Lng,
     int MaxCapacity,
     string? ImageUrl,
-    int EnrolledCount
+    int EnrolledCount,
+    int Clicks24h,                  // #6/#5 - odsłony z ostatnich 24h
+    DateTime? RegistrationOpensAt,  // #4 - null = otwarte
+    bool HasPresaved                // #4 - czy zalogowany student już pre-savnął
 );
 
 public record EventDetailsDto(
@@ -58,7 +65,10 @@ public record EventDetailsDto(
     int OrganizerId,
     string OrganizerFirstName,
     string OrganizerLastName,
-    bool IsFull
+    bool IsFull,
+    int Clicks24h,                  // #6/#5
+    DateTime? RegistrationOpensAt,  // #4
+    bool HasPresaved                // #4
 );
 
 public record OrganizerEventDto(
@@ -73,7 +83,10 @@ public record OrganizerEventDto(
     int MaxCapacity,
     int EnrolledCount,
     int ScannedCount,
-    string? ImageUrl
+    string? ImageUrl,
+    int Clicks24h,                  // #6/#5
+    DateTime? RegistrationOpensAt,  // #4
+    int PresaveCount                // #4 - ile osób czeka na otwarcie
 );
 
 public record AdminEventDto(
@@ -94,5 +107,8 @@ public record AdminEventDto(
     string OrganizerFirstName,
     string OrganizerLastName,
     string OrganizerEmail,
-    string OrganizerName
+    string OrganizerName,
+    int Clicks24h,                  // #6/#5
+    DateTime? RegistrationOpensAt,  // #4
+    int PresaveCount                // #4
 );

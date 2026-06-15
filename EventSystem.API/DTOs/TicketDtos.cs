@@ -5,6 +5,8 @@ public record TicketDto(
     int EventId,
     string EventTitle,
     DateTime EventDate,
+    DateTime StartDate,      // = data rozpoczęcia wydarzenia (alias EventDate)
+    DateTime? EndDate,       // data zakończenia wydarzenia (jeśli ustawiona)
     string Location,
     string QrCodeContent,
     bool IsScanned,

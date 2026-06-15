@@ -24,6 +24,7 @@ public class EventService
             Lat = dto.Lat,
             Lng = dto.Lng,
             MaxCapacity = dto.MaxCapacity,
+            RegistrationOpensAt = dto.RegistrationOpensAt?.ToUniversalTime(),
             OrganizerId = organizerId
         };
 
@@ -45,8 +46,12 @@ public class EventService
         return true;
     }
 
-    public async Task<List<EventDto>> GetUpcomingEventsAsync()
+    public async Task<List<EventDto>> GetUpcomingEventsAsync(int? studentId)
     {
+        var clicksCutoff = DateTime.UtcNow.AddHours(-24);
+        var sid = studentId ?? 0;
+        var hasUser = studentId.HasValue;
+
         return await _context.Events
             .AsNoTracking()
             .Where(e => e.Date >= DateTime.UtcNow)
@@ -62,7 +67,10 @@ public class EventService
                 e.Lng,
                 e.MaxCapacity,
                 e.ImageUrl,
-                e.Tickets.Count))
+                e.Tickets.Count,
+                e.Views.Count(v => v.CreatedAt >= clicksCutoff),
+                e.RegistrationOpensAt,
+                hasUser && e.Presaves.Any(p => p.StudentId == sid)))
             .ToListAsync();
     }
 
@@ -74,39 +82,42 @@ public class EventService
             .FirstOrDefaultAsync(e => e.Id == eventId && e.OrganizerId == organizerId);
     }
 
-    public async Task<EventDetailsDto?> GetEventDetailsAsync(int eventId)
+    public async Task<EventDetailsDto?> GetEventDetailsAsync(int eventId, int? studentId)
     {
-        var ev = await _context.Events
+        var clicksCutoff = DateTime.UtcNow.AddHours(-24);
+        var sid = studentId ?? 0;
+        var hasUser = studentId.HasValue;
+
+        return await _context.Events
             .AsNoTracking()
-            .Include(e => e.Organizer)
-            .Include(e => e.Tickets)
-            .FirstOrDefaultAsync(e => e.Id == eventId);
-
-        if (ev == null)
-            return null;
-
-        return new EventDetailsDto(
-            ev.Id,
-            ev.Title,
-            ev.Description,
-            ev.Date,
-            ev.EndDate,
-            ev.Location,
-            ev.LocationName,
-            ev.Lat,
-            ev.Lng,
-            ev.MaxCapacity,
-            ev.ImageUrl,
-            ev.Tickets.Count,
-            ev.OrganizerId,
-            ev.Organizer.FirstName,
-            ev.Organizer.LastName,
-            ev.Tickets.Count >= ev.MaxCapacity
-        );
+            .Where(e => e.Id == eventId)
+            .Select(e => new EventDetailsDto(
+                e.Id,
+                e.Title,
+                e.Description,
+                e.Date,
+                e.EndDate,
+                e.Location,
+                e.LocationName,
+                e.Lat,
+                e.Lng,
+                e.MaxCapacity,
+                e.ImageUrl,
+                e.Tickets.Count,
+                e.OrganizerId,
+                e.Organizer.FirstName,
+                e.Organizer.LastName,
+                e.Tickets.Count >= e.MaxCapacity,
+                e.Views.Count(v => v.CreatedAt >= clicksCutoff),
+                e.RegistrationOpensAt,
+                hasUser && e.Presaves.Any(p => p.StudentId == sid)))
+            .FirstOrDefaultAsync();
     }
 
     public async Task<List<OrganizerEventDto>> GetOrganizerEventsAsync(int organizerId)
     {
+        var clicksCutoff = DateTime.UtcNow.AddHours(-24);
+
         return await _context.Events
             .AsNoTracking()
             .Where(e => e.OrganizerId == organizerId)
@@ -123,7 +134,10 @@ public class EventService
                 e.MaxCapacity,
                 e.Tickets.Count,
                 e.Tickets.Count(t => t.IsScanned),
-                e.ImageUrl
+                e.ImageUrl,
+                e.Views.Count(v => v.CreatedAt >= clicksCutoff),
+                e.RegistrationOpensAt,
+                e.Presaves.Count
             ))
             .ToListAsync();
     }
@@ -150,6 +164,7 @@ public class EventService
         ev.Lat = dto.Lat;
         ev.Lng = dto.Lng;
         ev.MaxCapacity = dto.MaxCapacity;
+        ev.RegistrationOpensAt = dto.RegistrationOpensAt?.ToUniversalTime();
 
         await _context.SaveChangesAsync();
         return (true, null);
@@ -180,5 +195,76 @@ public class EventService
         _context.Events.Remove(ev);
         await _context.SaveChangesAsync();
         return (true, null);
+    }
+
+    // #6/#5 - rejestruje odsłonę wydarzenia. Deduplikacja per klient (hash IP)
+    // w oknie 30 minut, żeby ograniczyć spam. Operacja best-effort - jeśli
+    // wydarzenie nie istnieje, po prostu nic nie zapisujemy.
+    public async Task RecordViewAsync(int eventId, string? clientKey)
+    {
+        var exists = await _context.Events.AnyAsync(e => e.Id == eventId);
+        if (!exists)
+            return;
+
+        if (clientKey != null)
+        {
+            var dedupCutoff = DateTime.UtcNow.AddMinutes(-30);
+            var recentlySeen = await _context.EventViews.AnyAsync(v =>
+                v.EventId == eventId &&
+                v.ClientKey == clientKey &&
+                v.CreatedAt >= dedupCutoff);
+
+            if (recentlySeen)
+                return;
+        }
+
+        _context.EventViews.Add(new EventView
+        {
+            EventId = eventId,
+            ClientKey = clientKey,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _context.SaveChangesAsync();
+    }
+
+    // #4 - zgłoszenie pre-save. Idempotentne: ponowne wywołanie nic nie zmienia.
+    public async Task<(bool Success, string? Error)> AddPresaveAsync(int eventId, int studentId)
+    {
+        var ev = await _context.Events.FirstOrDefaultAsync(e => e.Id == eventId);
+        if (ev == null)
+            return (false, "Podane wydarzenie nie istnieje");
+
+        if (ev.OrganizerId == studentId)
+            return (false, "Nie możesz zapisać się na własne wydarzenie");
+
+        var already = await _context.EventPresaves
+            .AnyAsync(p => p.EventId == eventId && p.StudentId == studentId);
+
+        if (!already)
+        {
+            _context.EventPresaves.Add(new EventPresave
+            {
+                EventId = eventId,
+                StudentId = studentId,
+                CreatedAt = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync();
+        }
+
+        return (true, null);
+    }
+
+    // #4 - wycofanie pre-save. Idempotentne.
+    public async Task RemovePresaveAsync(int eventId, int studentId)
+    {
+        var presave = await _context.EventPresaves
+            .FirstOrDefaultAsync(p => p.EventId == eventId && p.StudentId == studentId);
+
+        if (presave != null)
+        {
+            _context.EventPresaves.Remove(presave);
+            await _context.SaveChangesAsync();
+        }
     }
 }

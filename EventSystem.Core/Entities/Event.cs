@@ -25,8 +25,14 @@ public class Event
     public int MaxCapacity { get; set; }
     public string? ImageUrl { get; set; }
 
+    // Moment otwarcia rejestracji (#4). Null = rejestracja otwarta od razu.
+    // Przed tym czasem zapis jest blokowany; studenci mogą zrobić "pre-save".
+    public DateTime? RegistrationOpensAt { get; set; }
+
     public int OrganizerId { get; set; }
     public User Organizer { get; set; } = null!;
 
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+    public ICollection<EventView> Views { get; set; } = new List<EventView>();
+    public ICollection<EventPresave> Presaves { get; set; } = new List<EventPresave>();
 }

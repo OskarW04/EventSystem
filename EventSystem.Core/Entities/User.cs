@@ -15,6 +15,7 @@ public class User
 
     public ICollection<SocialLink> SocialLinks { get; set; } = new List<SocialLink>();
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+    public ICollection<EventPresave> Presaves { get; set; } = new List<EventPresave>();
     public ICollection<Event> CreatedEvents { get; set; } = new List<Event>();
     public ICollection<OrganizationToken> CreatedTokens { get; set; } = new List<OrganizationToken>();
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

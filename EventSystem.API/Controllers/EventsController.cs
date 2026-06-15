@@ -1,4 +1,6 @@
 ﻿using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using EventSystem.API.Common;
 using EventSystem.API.DTOs;
 using EventSystem.API.Services;
@@ -18,7 +20,7 @@ public class EventsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAllUpcoming()
     {
-        var events = await _eventService.GetUpcomingEventsAsync();
+        var events = await _eventService.GetUpcomingEventsAsync(GetOptionalUserId());
         return Ok(ApiResponse<object>.Ok(events));
     }
 
@@ -34,11 +36,41 @@ public class EventsController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetEventDetails(int id)
     {
-        var eventDetails = await _eventService.GetEventDetailsAsync(id);
+        var eventDetails = await _eventService.GetEventDetailsAsync(id, GetOptionalUserId());
 
         return eventDetails != null
             ? Ok(ApiResponse<object>.Ok(eventDetails))
             : NotFound(ApiResponse.Fail("Wydarzenie nie istnieje"));
+    }
+
+    // #6/#5 - zliczenie odsłony. Fire-and-forget, bez autoryzacji, zawsze 204.
+    [HttpPost("{id:int}/view")]
+    public async Task<IActionResult> RecordView(int id)
+    {
+        await _eventService.RecordViewAsync(id, GetClientKey());
+        return NoContent();
+    }
+
+    // #4 - pre-save (zgłoszenie chęci zapisu przed otwarciem rejestracji).
+    [Authorize(Roles = "Student")]
+    [HttpPost("{id:int}/presave")]
+    public async Task<IActionResult> Presave(int id)
+    {
+        var studentId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _eventService.AddPresaveAsync(id, studentId);
+
+        return success
+            ? Ok(ApiResponse.Ok("Zapisano chęć udziału - damy znać, gdy ruszy rejestracja"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zapisać pre-save"));
+    }
+
+    [Authorize(Roles = "Student")]
+    [HttpDelete("{id:int}/presave")]
+    public async Task<IActionResult> CancelPresave(int id)
+    {
+        var studentId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        await _eventService.RemovePresaveAsync(id, studentId);
+        return NoContent();
     }
 
     [Authorize(Roles = "Organizer")]
@@ -107,5 +139,28 @@ public class EventsController : ControllerBase
         });
 
         return Ok(ApiResponse<object>.Ok(attendees));
+    }
+
+    // Zwraca id zalogowanego użytkownika lub null dla anonimowych żądań
+    // (endpointy publiczne, na których token może, ale nie musi być obecny).
+    private int? GetOptionalUserId()
+    {
+        var raw = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(raw, out var id) ? id : null;
+    }
+
+    // Stabilny, zanonimizowany klucz klienta (hash IP) do deduplikacji odsłon.
+    private string? GetClientKey()
+    {
+        var ip = Request.Headers.TryGetValue("X-Forwarded-For", out var fwd)
+            && !string.IsNullOrWhiteSpace(fwd)
+                ? fwd.ToString().Split(',')[0].Trim()
+                : HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        if (string.IsNullOrWhiteSpace(ip))
+            return null;
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(ip));
+        return Convert.ToHexString(hash);
     }
 }

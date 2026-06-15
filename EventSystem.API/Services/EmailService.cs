@@ -91,6 +91,40 @@ public class EmailService : IEmailService
         _logger.LogInformation("Organization token email sent to {Email}", to);
     }
 
+    public async Task SendRegistrationOpenEmailAsync(string to, int eventId, string eventTitle)
+    {
+        var frontendUrl = _config["AppSettings:FrontendUrl"]?.TrimEnd('/');
+        var eventLink = $"{frontendUrl}/events/{eventId}";
+
+        var message = new MimeMessage();
+        message.From.Add(MailboxAddress.Parse(_config["EmailSettings:From"]));
+        message.To.Add(MailboxAddress.Parse(to));
+        message.Subject = $"Rejestracja otwarta — {eventTitle}";
+        message.Body = new TextPart("html")
+        {
+            Text = $"""
+                <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
+                    <h2>Rejestracja jest już otwarta!</h2>
+                    <p>Zapisy na wydarzenie <strong>{eventTitle}</strong>, które oznaczyłeś jako „pre-save", właśnie ruszyły.</p>
+                    <p>Liczba miejsc jest ograniczona — pobierz swój bilet, zanim się skończą.</p>
+                    <p style="margin: 24px 0;">
+                        <a href="{eventLink}"
+                           style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
+                            Przejdź do wydarzenia
+                        </a>
+                    </p>
+                    <p style="color:#6b7280;font-size:13px;">
+                        Otrzymujesz tę wiadomość, ponieważ zgłosiłeś chęć udziału w tym wydarzeniu w EventSystem.
+                    </p>
+                </div>
+                """
+        };
+
+        await SendAsync(message);
+
+        _logger.LogInformation("Registration-open email sent to {Email} for event {EventId}", to, eventId);
+    }
+
     private async Task SendAsync(MimeMessage message)
     {
         using var client = new SmtpClient();

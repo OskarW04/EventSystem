@@ -19,7 +19,12 @@ public class TicketsController : ControllerBase
     public async Task<IActionResult> Enroll(int eventId)
     {
         var studentId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var (ticket, error) = await _ticketService.EnrollInEventAsync(eventId, studentId);
+        var (ticket, error, registrationOpensAt) =
+            await _ticketService.EnrollInEventAsync(eventId, studentId);
+
+        // #4 - rejestracja jeszcze nieotwarta: 409 z kodem i czasem otwarcia.
+        if (error == TicketService.RegistrationNotOpenError)
+            return Conflict(new { error, opensAt = registrationOpensAt });
 
         return error != null
             ? BadRequest(ApiResponse.Fail(error))

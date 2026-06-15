@@ -11,24 +11,32 @@ public class TicketService
 
     public TicketService(AppDbContext context) => _context = context;
 
-    public async Task<(TicketDto? Ticket, string? Error)> EnrollInEventAsync(int eventId, int studentId)
+    // Sentinel zwracany, gdy rejestracja jeszcze się nie otworzyła (#4).
+    // Kontroler tłumaczy go na 409 z ciałem { error, opensAt }.
+    public const string RegistrationNotOpenError = "registration_not_open";
+
+    public async Task<(TicketDto? Ticket, string? Error, DateTime? RegistrationOpensAt)>
+        EnrollInEventAsync(int eventId, int studentId)
     {
         var ev = await _context.Events
             .Include(e => e.Tickets)
             .FirstOrDefaultAsync(e => e.Id == eventId);
 
         if (ev == null)
-            return (null, "Podane wydarzenie nie istnieje");
+            return (null, "Podane wydarzenie nie istnieje", null);
         // Organizator nie może zapisać się na własne wydarzenie - nawet jeśli
         // jego rola została w międzyczasie zmieniona na Student.
         if (ev.OrganizerId == studentId)
-            return (null, "Nie możesz zapisać się na własne wydarzenie");
+            return (null, "Nie możesz zapisać się na własne wydarzenie", null);
+        // #4 - twarda blokada zapisu przed otwarciem rejestracji.
+        if (ev.RegistrationOpensAt.HasValue && DateTime.UtcNow < ev.RegistrationOpensAt.Value)
+            return (null, RegistrationNotOpenError, ev.RegistrationOpensAt);
         if (ev.Date < DateTime.UtcNow)
-            return (null, "To wydarzenie już się odbyło");
+            return (null, "To wydarzenie już się odbyło", null);
         if (ev.Tickets.Count >= ev.MaxCapacity)
-            return (null, "Brak wolnych miejsc na to wydarzenie");
+            return (null, "Brak wolnych miejsc na to wydarzenie", null);
         if (ev.Tickets.Any(t => t.StudentId == studentId))
-            return (null, "Masz już bilet na to wydarzenie");
+            return (null, "Masz już bilet na to wydarzenie", null);
 
         var scanToken = Guid.NewGuid();
 
@@ -48,10 +56,12 @@ public class TicketService
             ev.Id,
             ev.Title,
             ev.Date,
+            ev.Date,
+            ev.EndDate,
             ev.Location,
             ticket.QrCodeContent,
             ticket.IsScanned,
-            ticket.StudentId), null);
+            ticket.StudentId), null, null);
     }
 
     public async Task<List<TicketDto>> GetMyTicketsAsync(int studentId)
@@ -65,6 +75,8 @@ public class TicketService
                 t.EventId,
                 t.Event.Title,
                 t.Event.Date,
+                t.Event.Date,
+                t.Event.EndDate,
                 t.Event.Location,
                 t.QrCodeContent,
                 t.IsScanned,
