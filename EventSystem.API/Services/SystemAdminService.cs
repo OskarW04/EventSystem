@@ -9,11 +9,16 @@ public class SystemAdminService
 {
     private readonly AppDbContext _context;
     private readonly ILogger<SystemAdminService> _logger;
+    private readonly IEmailService _emailService;
 
-    public SystemAdminService(AppDbContext context, ILogger<SystemAdminService> logger)
+    public SystemAdminService(
+        AppDbContext context,
+        ILogger<SystemAdminService> logger,
+        IEmailService emailService)
     {
         _context = context;
         _logger = logger;
+        _emailService = emailService;
     }
 
     public async Task<string> GenerateOrganizationTokenAsync(int adminId)
@@ -220,6 +225,7 @@ public class SystemAdminService
                 e.Date,
                 e.EndDate,
                 e.Location,
+                e.LocationName,
                 e.Lat,
                 e.Lng,
                 e.MaxCapacity,
@@ -229,7 +235,8 @@ public class SystemAdminService
                 e.OrganizerId,
                 e.Organizer.FirstName,
                 e.Organizer.LastName,
-                e.Organizer.Email
+                e.Organizer.Email,
+                e.Organizer.FirstName + " " + e.Organizer.LastName
             ))
             .ToListAsync();
 
@@ -252,6 +259,7 @@ public class SystemAdminService
                 e.Date,
                 e.EndDate,
                 e.Location,
+                e.LocationName,
                 e.Lat,
                 e.Lng,
                 e.MaxCapacity,
@@ -261,7 +269,8 @@ public class SystemAdminService
                 e.OrganizerId,
                 e.Organizer.FirstName,
                 e.Organizer.LastName,
-                e.Organizer.Email
+                e.Organizer.Email,
+                e.Organizer.FirstName + " " + e.Organizer.LastName
             ))
             .FirstOrDefaultAsync();
 
@@ -288,6 +297,7 @@ public class SystemAdminService
             ev.Date = dto.Date.ToUniversalTime();
             ev.EndDate = dto.EndDate?.ToUniversalTime();
             ev.Location = dto.Location;
+            ev.LocationName = dto.LocationName;
             ev.Lat = dto.Lat;
             ev.Lng = dto.Lng;
             ev.MaxCapacity = dto.MaxCapacity;
@@ -343,6 +353,106 @@ public class SystemAdminService
         {
             _logger.LogError(ex, "Error deleting event {EventId}", eventId);
             return (false, "Nie udało się usunąć wydarzenia");
+        }
+    }
+
+    public async Task<List<AttendeeDto>?> GetEventAttendeesAsync(int adminId, int eventId)
+    {
+        var ev = await _context.Events
+            .AsNoTracking()
+            .Include(e => e.Tickets)
+                .ThenInclude(t => t.Student)
+            .FirstOrDefaultAsync(e => e.Id == eventId);
+
+        if (ev == null)
+            return null;
+
+        return ev.Tickets.Select(t => new AttendeeDto(
+            t.Id,
+            t.ScanToken,
+            t.Student.Email,
+            t.Student.FirstName,
+            t.Student.LastName,
+            t.IsScanned
+        )).ToList();
+    }
+
+    public async Task<(bool Success, string? Error)> ResetTicketScanAsync(int adminId, Guid scanToken)
+    {
+        try
+        {
+            var ticket = await _context.Tickets
+                .Include(t => t.Event)
+                .FirstOrDefaultAsync(t => t.ScanToken == scanToken);
+
+            if (ticket == null)
+                return (false, "Nie znaleziono biletu o podanym kodzie");
+
+            if (!ticket.IsScanned)
+                return (false, "Ten bilet nie został jeszcze zeskanowany");
+
+            ticket.IsScanned = false;
+            ticket.ScannedAt = null;
+            await _context.SaveChangesAsync();
+
+            await LogActionAsync(adminId, "ResetTicket", "Ticket", ticket.Id,
+                $"Zresetowano skan biletu #{ticket.Id} (wydarzenie: {ticket.Event.Title})");
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting ticket scan for token {ScanToken}", scanToken);
+            return (false, "Nie udało się zresetować biletu");
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> DeleteTicketAsync(int adminId, int ticketId)
+    {
+        try
+        {
+            var ticket = await _context.Tickets
+                .Include(t => t.Event)
+                .FirstOrDefaultAsync(t => t.Id == ticketId);
+
+            if (ticket == null)
+                return (false, "Nie znaleziono biletu");
+
+            // Usunięcie biletu automatycznie zwalnia miejsce - EnrolledCount liczony jest
+            // jako Tickets.Count, więc po usunięciu pojawia się wolne miejsce.
+            var eventTitle = ticket.Event.Title;
+
+            _context.Tickets.Remove(ticket);
+            await _context.SaveChangesAsync();
+
+            await LogActionAsync(adminId, "DeleteTicket", "Ticket", ticketId,
+                $"Usunięto bilet #{ticketId} i zwolniono miejsce (wydarzenie: {eventTitle})");
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting ticket {TicketId}", ticketId);
+            return (false, "Nie udało się usunąć biletu");
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> SendTokenEmailAsync(
+        int adminId, string token, string email)
+    {
+        try
+        {
+            await _emailService.SendOrganizationTokenEmailAsync(email, token);
+
+            await LogActionAsync(adminId, "SendTokenEmail", "OrganizationToken", null,
+                $"Wysłano token organizacji na adres: {email}");
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending organization token email to {Email}", email);
+            return (false, "Nie udało się wysłać wiadomości e-mail");
         }
     }
 

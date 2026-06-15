@@ -2,6 +2,7 @@
 
 public record TicketDto(
     int Id,
+    int EventId,
     string EventTitle,
     DateTime EventDate,
     string Location,

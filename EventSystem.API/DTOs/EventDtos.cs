@@ -8,6 +8,7 @@ public record CreateEventDto(
     [Required] DateTime Date,
     DateTime? EndDate,
     [Required, StringLength(200, MinimumLength = 2)] string Location,
+    [StringLength(200)] string? LocationName,
     double? Lat,
     double? Lng,
     [Range(1, 100000)] int MaxCapacity
@@ -19,6 +20,7 @@ public record UpdateEventDto(
     [Required] DateTime Date,
     DateTime? EndDate,
     [Required, StringLength(200, MinimumLength = 2)] string Location,
+    [StringLength(200)] string? LocationName,
     double? Lat,
     double? Lng,
     [Range(1, 100000)] int MaxCapacity
@@ -32,6 +34,7 @@ public record EventDto(
     DateTime Date,
     DateTime? EndDate,
     string Location,
+    string? LocationName,
     double? Lat,
     double? Lng,
     int MaxCapacity,
@@ -46,6 +49,7 @@ public record EventDetailsDto(
     DateTime Date,
     DateTime? EndDate,
     string Location,
+    string? LocationName,
     double? Lat,
     double? Lng,
     int MaxCapacity,
@@ -63,6 +67,7 @@ public record OrganizerEventDto(
     DateTime Date,
     DateTime? EndDate,
     string Location,
+    string? LocationName,
     double? Lat,
     double? Lng,
     int MaxCapacity,
@@ -78,6 +83,7 @@ public record AdminEventDto(
     DateTime Date,
     DateTime? EndDate,
     string Location,
+    string? LocationName,
     double? Lat,
     double? Lng,
     int MaxCapacity,
@@ -87,5 +93,6 @@ public record AdminEventDto(
     int OrganizerId,
     string OrganizerFirstName,
     string OrganizerLastName,
-    string OrganizerEmail
+    string OrganizerEmail,
+    string OrganizerName
 );

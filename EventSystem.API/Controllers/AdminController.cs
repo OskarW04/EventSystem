@@ -106,6 +106,50 @@ public class AdminController : ControllerBase
             : BadRequest(ApiResponse.Fail(error ?? "Nie udało się usunąć wydarzenia"));
     }
 
+    [HttpGet("events/{eventId:int}/attendees")]
+    public async Task<IActionResult> GetEventAttendees(int eventId)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var attendees = await _adminService.GetEventAttendeesAsync(adminId, eventId);
+
+        return attendees != null
+            ? Ok(ApiResponse<object>.Ok(attendees))
+            : NotFound(ApiResponse.Fail("Wydarzenie nie istnieje"));
+    }
+
+    [HttpPost("tickets/{scanToken:guid}/reset")]
+    public async Task<IActionResult> ResetTicket(Guid scanToken)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _adminService.ResetTicketScanAsync(adminId, scanToken);
+
+        return success
+            ? Ok(ApiResponse.Ok("Skan biletu został zresetowany"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zresetować biletu"));
+    }
+
+    [HttpDelete("tickets/{ticketId:int}")]
+    public async Task<IActionResult> DeleteTicket(int ticketId)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _adminService.DeleteTicketAsync(adminId, ticketId);
+
+        return success
+            ? Ok(ApiResponse.Ok("Bilet został usunięty, miejsce zwolnione"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się usunąć biletu"));
+    }
+
+    [HttpPost("send-token-email")]
+    public async Task<IActionResult> SendTokenEmail([FromBody] SendTokenEmailDto dto)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (success, error) = await _adminService.SendTokenEmailAsync(adminId, dto.Token, dto.Email);
+
+        return success
+            ? Ok(ApiResponse.Ok($"Token został wysłany na adres {dto.Email}"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się wysłać wiadomości"));
+    }
+
     [HttpGet("logs")]
     public async Task<IActionResult> GetLogs([FromQuery] int limit = 100)
     {

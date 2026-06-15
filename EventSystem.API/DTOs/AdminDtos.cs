@@ -23,3 +23,17 @@ public record AuditLogDto(
 public record UpdateRoleDto(
     string NewRole
 );
+
+public record SendTokenEmailDto(
+    string Token,
+    string Email
+);
+
+public record AttendeeDto(
+    int Id,
+    Guid ScanToken,
+    string StudentEmail,
+    string FirstName,
+    string LastName,
+    bool IsScanned
+);

@@ -20,6 +20,7 @@ public class EventService
             Date = dto.Date.ToUniversalTime(),
             EndDate = dto.EndDate?.ToUniversalTime(),
             Location = dto.Location,
+            LocationName = dto.LocationName,
             Lat = dto.Lat,
             Lng = dto.Lng,
             MaxCapacity = dto.MaxCapacity,
@@ -66,6 +67,7 @@ public class EventService
                 e.Date,
                 e.EndDate,
                 e.Location,
+                e.LocationName,
                 e.Lat,
                 e.Lng,
                 e.MaxCapacity,
@@ -100,6 +102,7 @@ public class EventService
             ev.Date,
             ev.EndDate,
             ev.Location,
+            ev.LocationName,
             ev.Lat,
             ev.Lng,
             ev.MaxCapacity,
@@ -124,6 +127,7 @@ public class EventService
                 e.Date,
                 e.EndDate,
                 e.Location,
+                e.LocationName,
                 e.Lat,
                 e.Lng,
                 e.MaxCapacity,
@@ -152,6 +156,7 @@ public class EventService
         ev.Date = dto.Date.ToUniversalTime();
         ev.EndDate = dto.EndDate?.ToUniversalTime();
         ev.Location = dto.Location;
+        ev.LocationName = dto.LocationName;
         ev.Lat = dto.Lat;
         ev.Lng = dto.Lng;
         ev.MaxCapacity = dto.MaxCapacity;

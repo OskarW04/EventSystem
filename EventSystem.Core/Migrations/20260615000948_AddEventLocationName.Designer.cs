@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace EventSystem.Core.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260507175118_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260615000948_AddEventLocationName")]
+    partial class AddEventLocationName
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -24,6 +24,43 @@ namespace EventSystem.Core.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("EventSystem.Core.Entities.AuditLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("EntityId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AuditLogs");
+                });
 
             modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
                 {
@@ -40,9 +77,27 @@ namespace EventSystem.Core.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("Lat")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("Lng")
+                        .HasColumnType("double precision");
+
                     b.Property<string>("Location")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("LocationName")
+                        .HasColumnType("text");
+
+                    b.Property<int>("MaxCapacity")
+                        .HasColumnType("integer");
 
                     b.Property<int>("OrganizerId")
                         .HasColumnType("integer");
@@ -95,6 +150,37 @@ namespace EventSystem.Core.Migrations
                     b.ToTable("OrganizationTokens");
                 });
 
+            modelBuilder.Entity("EventSystem.Core.Entities.RefreshToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens");
+                });
+
             modelBuilder.Entity("EventSystem.Core.Entities.Role", b =>
                 {
                     b.Property<int>("Id")
@@ -115,6 +201,32 @@ namespace EventSystem.Core.Migrations
                     b.ToTable("Roles");
                 });
 
+            modelBuilder.Entity("EventSystem.Core.Entities.SocialLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("PlatformName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SocialLinks");
+                });
+
             modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
                 {
                     b.Property<int>("Id")
@@ -133,6 +245,9 @@ namespace EventSystem.Core.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<Guid>("ScanToken")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("ScannedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -141,9 +256,13 @@ namespace EventSystem.Core.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EventId");
+                    b.HasIndex("ScanToken")
+                        .IsUnique();
 
                     b.HasIndex("StudentId");
+
+                    b.HasIndex("EventId", "StudentId")
+                        .IsUnique();
 
                     b.ToTable("Tickets");
                 });
@@ -155,6 +274,9 @@ namespace EventSystem.Core.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Bio")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -175,6 +297,12 @@ namespace EventSystem.Core.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("PasswordResetToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PasswordResetTokenExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("RoleId")
                         .HasColumnType("integer");
 
@@ -186,6 +314,17 @@ namespace EventSystem.Core.Migrations
                     b.HasIndex("RoleId");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.AuditLog", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EventSystem.Core.Entities.Event", b =>
@@ -215,6 +354,28 @@ namespace EventSystem.Core.Migrations
                     b.Navigation("CreatedBy");
 
                     b.Navigation("UsedBy");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.RefreshToken", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "User")
+                        .WithMany("RefreshTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("EventSystem.Core.Entities.SocialLink", b =>
+                {
+                    b.HasOne("EventSystem.Core.Entities.User", "User")
+                        .WithMany("SocialLinks")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EventSystem.Core.Entities.Ticket", b =>
@@ -262,6 +423,10 @@ namespace EventSystem.Core.Migrations
                     b.Navigation("CreatedEvents");
 
                     b.Navigation("CreatedTokens");
+
+                    b.Navigation("RefreshTokens");
+
+                    b.Navigation("SocialLinks");
 
                     b.Navigation("Tickets");
                 });

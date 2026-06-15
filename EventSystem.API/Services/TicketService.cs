@@ -45,6 +45,7 @@ public class TicketService
 
         return (new TicketDto(
             ticket.Id,
+            ev.Id,
             ev.Title,
             ev.Date,
             ev.Location,
@@ -61,6 +62,7 @@ public class TicketService
             .Where(t => t.StudentId == studentId)
             .Select(t => new TicketDto(
                 t.Id,
+                t.EventId,
                 t.Event.Title,
                 t.Event.Date,
                 t.Event.Location,

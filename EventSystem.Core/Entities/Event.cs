@@ -14,6 +14,10 @@ public class Event
 
     public string Location { get; set; } = string.Empty;
 
+    // Przyjazna nazwa miejsca (np. "Aula Główna PW") pokazywana obok adresu/mapy.
+    // Opcjonalna - starsze wydarzenia mogą jej nie mieć.
+    public string? LocationName { get; set; }
+
     // Współrzędne geograficzne (OpenStreetMap / Leaflet). Opcjonalne.
     public double? Lat { get; set; }
     public double? Lng { get; set; }

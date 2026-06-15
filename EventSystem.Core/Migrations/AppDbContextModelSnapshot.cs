@@ -90,6 +90,9 @@ namespace EventSystem.Core.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("LocationName")
+                        .HasColumnType("text");
+
                     b.Property<int>("MaxCapacity")
                         .HasColumnType("integer");
 
