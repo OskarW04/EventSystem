@@ -214,6 +214,53 @@ public class SystemAdminService
         }
     }
 
+    public async Task<(UserListDto? User, string? Error)> CreateUserAsync(
+        int adminId, AdminCreateUserDto dto)
+    {
+        try
+        {
+            // Domyślnie Student; "Admin" niedozwolony (spójnie z UpdateUserRoleAsync).
+            var roleName = string.IsNullOrWhiteSpace(dto.Role) ? "Student" : dto.Role.Trim();
+            if (roleName == "Admin")
+                return (null, "Nie można utworzyć użytkownika z rolą Admin");
+
+            var role = await _context.Roles.FirstOrDefaultAsync(r => r.Name == roleName);
+            if (role == null)
+                return (null, "Podana rola nie istnieje");
+
+            if (await _context.Users.AnyAsync(u => u.Email == dto.Email))
+                return (null, "Podany adres e-mail jest już zajęty");
+
+            var user = new User
+            {
+                FirstName = dto.FirstName,
+                LastName = dto.LastName,
+                Email = dto.Email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+                RoleId = role.Id,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            await LogActionAsync(adminId, "CreateUser", "User", user.Id,
+                $"Utworzono użytkownika: {user.Email} (rola: {roleName})");
+
+            // Nowy użytkownik nie ma jeszcze żadnych wydarzeń.
+            var result = new UserListDto(
+                user.Id, user.FirstName, user.LastName, user.Email,
+                roleName, user.CreatedAt, false);
+
+            return (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating user from admin panel");
+            return (null, "Nie udało się utworzyć użytkownika");
+        }
+    }
+
     public async Task<List<AdminEventDto>> GetAllEventsAsync(int adminId)
     {
         var clicksCutoff = DateTime.UtcNow.AddHours(-24);

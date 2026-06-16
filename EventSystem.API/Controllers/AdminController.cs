@@ -43,6 +43,17 @@ public class AdminController : ControllerBase
         return Ok(ApiResponse<object>.Ok(users));
     }
 
+    [HttpPost("users")]
+    public async Task<IActionResult> CreateUser([FromBody] AdminCreateUserDto dto)
+    {
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (user, error) = await _adminService.CreateUserAsync(adminId, dto);
+
+        return user != null
+            ? Ok(ApiResponse<object>.Ok(user, "Użytkownik został utworzony"))
+            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się utworzyć użytkownika"));
+    }
+
     [HttpDelete("users/{userId:int}")]
     public async Task<IActionResult> DeleteUser(int userId)
     {
