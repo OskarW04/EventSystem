@@ -13,8 +13,14 @@ public record CreateEventDto(
     double? Lng,
     [Range(1, 100000)] int MaxCapacity,
     // #4 - null = rejestracja otwarta od razu
-    DateTime? RegistrationOpensAt
-);
+    DateTime? RegistrationOpensAt,
+    // #4 - null = pre-rejestracja dostępna od razu
+    DateTime? PresaveOpensAt
+) : IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        => EventRegistrationWindow.Validate(Date, RegistrationOpensAt, PresaveOpensAt);
+}
 
 public record UpdateEventDto(
     [Required, StringLength(100, MinimumLength = 3)] string Title,
@@ -27,8 +33,14 @@ public record UpdateEventDto(
     double? Lng,
     [Range(1, 100000)] int MaxCapacity,
     // #4 - null = rejestracja otwarta od razu
-    DateTime? RegistrationOpensAt
-);
+    DateTime? RegistrationOpensAt,
+    // #4 - null = pre-rejestracja dostępna od razu
+    DateTime? PresaveOpensAt
+) : IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        => EventRegistrationWindow.Validate(Date, RegistrationOpensAt, PresaveOpensAt);
+}
 
 
 public record EventDto(
@@ -46,6 +58,7 @@ public record EventDto(
     int EnrolledCount,
     int Clicks24h,                  // #6/#5 - odsłony z ostatnich 24h
     DateTime? RegistrationOpensAt,  // #4 - null = otwarte
+    DateTime? PresaveOpensAt,       // #4 - null = pre-save od razu
     bool HasPresaved                // #4 - czy zalogowany student już pre-savnął
 );
 
@@ -68,6 +81,7 @@ public record EventDetailsDto(
     bool IsFull,
     int Clicks24h,                  // #6/#5
     DateTime? RegistrationOpensAt,  // #4
+    DateTime? PresaveOpensAt,       // #4 - null = pre-save od razu
     bool HasPresaved                // #4
 );
 
@@ -86,6 +100,7 @@ public record OrganizerEventDto(
     string? ImageUrl,
     int Clicks24h,                  // #6/#5
     DateTime? RegistrationOpensAt,  // #4
+    DateTime? PresaveOpensAt,       // #4 - null = pre-save od razu
     int PresaveCount                // #4 - ile osób czeka na otwarcie
 );
 
@@ -110,5 +125,6 @@ public record AdminEventDto(
     string OrganizerName,
     int Clicks24h,                  // #6/#5
     DateTime? RegistrationOpensAt,  // #4
+    DateTime? PresaveOpensAt,       // #4 - null = pre-save od razu
     int PresaveCount                // #4
 );

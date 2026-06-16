@@ -10,7 +10,8 @@ public record TicketDto(
     string Location,
     string QrCodeContent,
     bool IsScanned,
-    int StudentId
+    int StudentId,
+    bool IsExpired           // wydarzenie się zakończyło → bilet przedawniony
 );
 
 public record ScanResultDto(

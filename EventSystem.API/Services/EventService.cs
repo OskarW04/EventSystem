@@ -25,6 +25,7 @@ public class EventService
             Lng = dto.Lng,
             MaxCapacity = dto.MaxCapacity,
             RegistrationOpensAt = dto.RegistrationOpensAt?.ToUniversalTime(),
+            PresaveOpensAt = dto.PresaveOpensAt?.ToUniversalTime(),
             OrganizerId = organizerId
         };
 
@@ -70,6 +71,7 @@ public class EventService
                 e.Tickets.Count,
                 e.Views.Count(v => v.CreatedAt >= clicksCutoff),
                 e.RegistrationOpensAt,
+                e.PresaveOpensAt,
                 hasUser && e.Presaves.Any(p => p.StudentId == sid)))
             .ToListAsync();
     }
@@ -110,6 +112,7 @@ public class EventService
                 e.Tickets.Count >= e.MaxCapacity,
                 e.Views.Count(v => v.CreatedAt >= clicksCutoff),
                 e.RegistrationOpensAt,
+                e.PresaveOpensAt,
                 hasUser && e.Presaves.Any(p => p.StudentId == sid)))
             .FirstOrDefaultAsync();
     }
@@ -137,6 +140,7 @@ public class EventService
                 e.ImageUrl,
                 e.Views.Count(v => v.CreatedAt >= clicksCutoff),
                 e.RegistrationOpensAt,
+                e.PresaveOpensAt,
                 e.Presaves.Count
             ))
             .ToListAsync();
@@ -165,6 +169,7 @@ public class EventService
         ev.Lng = dto.Lng;
         ev.MaxCapacity = dto.MaxCapacity;
         ev.RegistrationOpensAt = dto.RegistrationOpensAt?.ToUniversalTime();
+        ev.PresaveOpensAt = dto.PresaveOpensAt?.ToUniversalTime();
 
         await _context.SaveChangesAsync();
         return (true, null);
@@ -237,6 +242,11 @@ public class EventService
 
         if (ev.OrganizerId == studentId)
             return (false, "Nie możesz zapisać się na własne wydarzenie");
+
+        // #4 - pre-save dostępny dopiero po otwarciu okna pre-rejestracji.
+        // Wymuszane serwerowo, żeby nie dało się obejść ukrytego przycisku.
+        if (ev.PresaveOpensAt.HasValue && DateTime.UtcNow < ev.PresaveOpensAt.Value)
+            return (false, "Pre-rejestracja jeszcze się nie rozpoczęła");
 
         var already = await _context.EventPresaves
             .AnyAsync(p => p.EventId == eventId && p.StudentId == studentId);

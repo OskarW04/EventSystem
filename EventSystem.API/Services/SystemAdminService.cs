@@ -243,6 +243,7 @@ public class SystemAdminService
                 e.Organizer.FirstName + " " + e.Organizer.LastName,
                 e.Views.Count(v => v.CreatedAt >= clicksCutoff),
                 e.RegistrationOpensAt,
+                e.PresaveOpensAt,
                 e.Presaves.Count
             ))
             .ToListAsync();
@@ -282,6 +283,7 @@ public class SystemAdminService
                 e.Organizer.FirstName + " " + e.Organizer.LastName,
                 e.Views.Count(v => v.CreatedAt >= clicksCutoff),
                 e.RegistrationOpensAt,
+                e.PresaveOpensAt,
                 e.Presaves.Count
             ))
             .FirstOrDefaultAsync();
@@ -314,6 +316,7 @@ public class SystemAdminService
             ev.Lng = dto.Lng;
             ev.MaxCapacity = dto.MaxCapacity;
             ev.RegistrationOpensAt = dto.RegistrationOpensAt?.ToUniversalTime();
+            ev.PresaveOpensAt = dto.PresaveOpensAt?.ToUniversalTime();
 
             await _context.SaveChangesAsync();
 

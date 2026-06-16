@@ -61,11 +61,15 @@ public class TicketService
             ev.Location,
             ticket.QrCodeContent,
             ticket.IsScanned,
-            ticket.StudentId), null, null);
+            ticket.StudentId,
+            (ev.EndDate ?? ev.Date) < DateTime.UtcNow), null, null);
     }
 
     public async Task<List<TicketDto>> GetMyTicketsAsync(int studentId)
     {
+        // Zmienna lokalna (nie DateTime.UtcNow w drzewie wyrażeń) — EF
+        // sparametryzuje ją w zapytaniu zamiast tłumaczyć wywołanie.
+        var now = DateTime.UtcNow;
         return await _context.Tickets
             .AsNoTracking()
             .Include(t => t.Event)
@@ -80,7 +84,8 @@ public class TicketService
                 t.Event.Location,
                 t.QrCodeContent,
                 t.IsScanned,
-                t.StudentId))
+                t.StudentId,
+                (t.Event.EndDate ?? t.Event.Date) < now))
             .ToListAsync();
     }
 
@@ -96,6 +101,10 @@ public class TicketService
             return (null, "Nie znaleziono biletu o podanym kodzie");
         if (ticket.Event.OrganizerId != organizerId)
             return (null, "Nie masz uprawnień do weryfikacji biletów na to wydarzenie");
+        // Po dacie zakończenia (a gdy jej brak — po dacie startu) bilet wygasa
+        // i nie da się go już zweryfikować przy wejściu.
+        if (DateTime.UtcNow > (ticket.Event.EndDate ?? ticket.Event.Date))
+            return (null, "To wydarzenie już się zakończyło — bilet wygasł");
         if (ticket.IsScanned)
             return (null, $"Ten bilet został już zeskanowany o godzinie {ticket.ScannedAt:HH:mm:ss}");
 

@@ -29,6 +29,11 @@ public class Event
     // Przed tym czasem zapis jest blokowany; studenci mogą zrobić "pre-save".
     public DateTime? RegistrationOpensAt { get; set; }
 
+    // Moment otwarcia pre-rejestracji ("presave") (#4). Null = pre-save dostępny
+    // od razu. Wcześniejsze okno zapisów niż właściwa rejestracja:
+    // PresaveOpensAt <= RegistrationOpensAt <= Date.
+    public DateTime? PresaveOpensAt { get; set; }
+
     public int OrganizerId { get; set; }
     public User Organizer { get; set; } = null!;
 
