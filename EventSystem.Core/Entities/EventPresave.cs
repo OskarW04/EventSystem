@@ -1,8 +1,9 @@
 namespace EventSystem.Core.Entities;
 
-// Zgłoszenie chęci zapisu na wydarzenie, którego rejestracja jeszcze się nie
-// otworzyła (#4 — pre-save). Po nadejściu RegistrationOpensAt zadanie w tle
-// wysyła pre-saverom maila "rejestracja otwarta" i ustawia Notified = true.
+// Zapis na powiadomienie mailowe o starcie rejestracji (#4 — "presave").
+// NIE tworzy biletu, nie daje pierwszeństwa ani miejsca — to subskrypcja maila
+// "powiadom mnie, gdy ruszy rejestracja". Po nadejściu RegistrationOpensAt
+// zadanie w tle wysyła pre-saverom maila i stempluje NotifiedAt.
 public class EventPresave
 {
     public int Id { get; set; }
@@ -15,6 +16,7 @@ public class EventPresave
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    // Czy wysłano już do tego studenta maila o otwarciu rejestracji.
-    public bool Notified { get; set; }
+    // Moment (UTC) wysłania maila o otwarciu rejestracji. Null = jeszcze nie
+    // powiadomiono. Stempel (a nie flaga bool) chroni przed dublem wysyłki.
+    public DateTime? NotifiedAt { get; set; }
 }

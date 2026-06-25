@@ -2,12 +2,14 @@ using EventSystem.API.Services;
 using EventSystem.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("EventSystem.Tests")]
+
 namespace EventSystem.API.Infrastructure;
 
 // #4 - zadanie w tle. Cyklicznie sprawdza pre-savy wydarzeń, których
-// RegistrationOpensAt już minął, i wysyła do nich maila "rejestracja otwarta".
-// Każdy pre-save oznaczany jest jako Notified dopiero po udanej wysyłce, więc
-// nieudane maile są ponawiane w kolejnym cyklu.
+// RegistrationOpensAt już minął (a samo wydarzenie się jeszcze nie odbyło),
+// i wysyła do nich maila "rejestracja otwarta". NotifiedAt stemplowany jest
+// dopiero po udanej wysyłce, więc nieudane maile są ponawiane w kolejnym cyklu.
 public class RegistrationOpeningNotifier : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
@@ -48,22 +50,35 @@ public class RegistrationOpeningNotifier : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
 
-        var now = DateTime.UtcNow;
+        await NotifyOpenedRegistrationsAsync(db, emailService, _logger, DateTime.UtcNow, BatchSize, ct);
+    }
 
+    // Rdzeń logiki wydzielony tak, by dało się go przetestować bez timera i DI.
+    // Zwraca liczbę wysłanych powiadomień. Wyjątek przy jednym adresie nie
+    // blokuje pozostałych - logujemy i lecimy dalej (NotifiedAt zostaje null).
+    internal static async Task<int> NotifyOpenedRegistrationsAsync(
+        AppDbContext db,
+        IEmailService emailService,
+        ILogger logger,
+        DateTime now,
+        int batchSize,
+        CancellationToken ct)
+    {
         var pending = await db.EventPresaves
             .Include(p => p.Event)
             .Include(p => p.Student)
-            .Where(p => !p.Notified
+            .Where(p => p.NotifiedAt == null
                 && p.Event.RegistrationOpensAt != null
-                && p.Event.RegistrationOpensAt <= now)
+                && p.Event.RegistrationOpensAt <= now
+                && p.Event.Date > now)
             .OrderBy(p => p.Id)
-            .Take(BatchSize)
+            .Take(batchSize)
             .ToListAsync(ct);
 
         if (pending.Count == 0)
-            return;
+            return 0;
 
-        var sentAny = false;
+        var sent = 0;
 
         foreach (var presave in pending)
         {
@@ -72,19 +87,21 @@ public class RegistrationOpeningNotifier : BackgroundService
                 await emailService.SendRegistrationOpenEmailAsync(
                     presave.Student.Email, presave.EventId, presave.Event.Title);
 
-                presave.Notified = true;
-                sentAny = true;
+                presave.NotifiedAt = now;
+                sent++;
             }
             catch (Exception ex)
             {
-                // Zostawiamy Notified = false - ponowimy w kolejnym cyklu.
-                _logger.LogError(ex,
+                // Zostawiamy NotifiedAt = null - ponowimy w kolejnym cyklu.
+                logger.LogError(ex,
                     "Nie udało się wysłać powiadomienia o otwarciu rejestracji do {Email} (wydarzenie {EventId})",
                     presave.Student.Email, presave.EventId);
             }
         }
 
-        if (sentAny)
+        if (sent > 0)
             await db.SaveChangesAsync(ct);
+
+        return sent;
     }
 }

@@ -5,6 +5,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EventSystem.API.Services;
 
+// Wynik próby zapisu na powiadomienie (#4). Pozwala kontrolerowi rozróżnić
+// duplikat (409) od pozostałych odrzuceń reguł okna presave (400).
+public enum PresaveOutcome
+{
+    Created,
+    AlreadyPresaved,
+    Invalid
+}
+
 public class EventService
 {
     private readonly AppDbContext _context;
@@ -233,36 +242,46 @@ public class EventService
         await _context.SaveChangesAsync();
     }
 
-    // #4 - zgłoszenie pre-save. Idempotentne: ponowne wywołanie nic nie zmienia.
-    public async Task<(bool Success, string? Error)> AddPresaveAsync(int eventId, int studentId)
+    // #4 - zapis na powiadomienie o starcie rejestracji ("presave"). NIE tworzy
+    // biletu ani miejsca - tylko subskrypcja maila. Reguły okna wymuszane
+    // serwerowo, żeby nie dało się obejść ukrytego przycisku.
+    public async Task<(PresaveOutcome Outcome, string? Error)> AddPresaveAsync(int eventId, int studentId)
     {
+        var now = DateTime.UtcNow;
+
         var ev = await _context.Events.FirstOrDefaultAsync(e => e.Id == eventId);
         if (ev == null)
-            return (false, "Podane wydarzenie nie istnieje");
+            return (PresaveOutcome.Invalid, "Podane wydarzenie nie istnieje");
 
         if (ev.OrganizerId == studentId)
-            return (false, "Nie możesz zapisać się na własne wydarzenie");
+            return (PresaveOutcome.Invalid, "Nie możesz zapisać się na własne wydarzenie");
 
-        // #4 - pre-save dostępny dopiero po otwarciu okna pre-rejestracji.
-        // Wymuszane serwerowo, żeby nie dało się obejść ukrytego przycisku.
-        if (ev.PresaveOpensAt.HasValue && DateTime.UtcNow < ev.PresaveOpensAt.Value)
-            return (false, "Pre-rejestracja jeszcze się nie rozpoczęła");
+        if (ev.Date <= now)
+            return (PresaveOutcome.Invalid, "To wydarzenie już się odbyło");
+
+        // Presave ma sens tylko zanim ruszy rejestracja. Gdy już otwarta - bilet.
+        if (ev.RegistrationOpensAt == null || now >= ev.RegistrationOpensAt.Value)
+            return (PresaveOutcome.Invalid, "Rejestracja jest już otwarta — odbierz bilet");
+
+        // Okno presave musiało wystartować (null = dostępne od razu).
+        if (ev.PresaveOpensAt.HasValue && now < ev.PresaveOpensAt.Value)
+            return (PresaveOutcome.Invalid, "Pre-rejestracja jeszcze się nie rozpoczęła");
 
         var already = await _context.EventPresaves
             .AnyAsync(p => p.EventId == eventId && p.StudentId == studentId);
 
-        if (!already)
-        {
-            _context.EventPresaves.Add(new EventPresave
-            {
-                EventId = eventId,
-                StudentId = studentId,
-                CreatedAt = DateTime.UtcNow
-            });
-            await _context.SaveChangesAsync();
-        }
+        if (already)
+            return (PresaveOutcome.AlreadyPresaved, null);
 
-        return (true, null);
+        _context.EventPresaves.Add(new EventPresave
+        {
+            EventId = eventId,
+            StudentId = studentId,
+            CreatedAt = now
+        });
+        await _context.SaveChangesAsync();
+
+        return (PresaveOutcome.Created, null);
     }
 
     // #4 - wycofanie pre-save. Idempotentne.

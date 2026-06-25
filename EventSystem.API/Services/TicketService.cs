@@ -49,6 +49,14 @@ public class TicketService
         };
 
         _context.Tickets.Add(ticket);
+
+        // #4 - sprzątanie: po właściwym zapisie presave (zapis na powiadomienie)
+        // jest już bezużyteczny - usuwamy go, żeby nie zaśmiecał liczników.
+        var presave = await _context.EventPresaves
+            .FirstOrDefaultAsync(p => p.EventId == eventId && p.StudentId == studentId);
+        if (presave != null)
+            _context.EventPresaves.Remove(presave);
+
         await _context.SaveChangesAsync();
 
         return (new TicketDto(

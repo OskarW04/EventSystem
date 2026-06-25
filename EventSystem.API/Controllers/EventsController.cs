@@ -51,26 +51,31 @@ public class EventsController : ControllerBase
         return NoContent();
     }
 
-    // #4 - pre-save (zgłoszenie chęci zapisu przed otwarciem rejestracji).
+    // #4 - presave: zapis na powiadomienie mailowe o starcie rejestracji.
+    // Nie tworzy biletu ani miejsca - tylko subskrypcja maila.
     [Authorize(Roles = "Student")]
-    [HttpPost("{id:int}/presave")]
-    public async Task<IActionResult> Presave(int id)
+    [HttpPost("{eventId:int}/presave")]
+    public async Task<IActionResult> Presave(int eventId)
     {
         var studentId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var (success, error) = await _eventService.AddPresaveAsync(id, studentId);
+        var (outcome, error) = await _eventService.AddPresaveAsync(eventId, studentId);
 
-        return success
-            ? Ok(ApiResponse.Ok("Zapisano chęć udziału - damy znać, gdy ruszy rejestracja"))
-            : BadRequest(ApiResponse.Fail(error ?? "Nie udało się zapisać pre-save"));
+        return outcome switch
+        {
+            PresaveOutcome.Created => Ok(ApiResponse<object>.Ok(null!, "Zapisano na powiadomienie")),
+            PresaveOutcome.AlreadyPresaved => Conflict(new { error = "already_presaved" }),
+            _ => BadRequest(ApiResponse.Fail(error ?? "Nie udało się zapisać na powiadomienie"))
+        };
     }
 
+    // #4 - rezygnacja z powiadomienia. Idempotentne, zwraca ciało JSON.
     [Authorize(Roles = "Student")]
-    [HttpDelete("{id:int}/presave")]
-    public async Task<IActionResult> CancelPresave(int id)
+    [HttpDelete("{eventId:int}/presave")]
+    public async Task<IActionResult> CancelPresave(int eventId)
     {
         var studentId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        await _eventService.RemovePresaveAsync(id, studentId);
-        return NoContent();
+        await _eventService.RemovePresaveAsync(eventId, studentId);
+        return Ok(ApiResponse.Ok("Anulowano zapis na powiadomienie"));
     }
 
     [Authorize(Roles = "Organizer")]
